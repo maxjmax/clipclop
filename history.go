@@ -38,8 +38,8 @@ func (h *History) getEnd() int {
 }
 
 func (c *Clip) isDuplicate(c2 Clip) bool {
-	if c2.created.Sub(c.created).Seconds() > 60*5 {
-		// if 5 minutes have passed, we assume this is not a duplicate
+	if c2.created.Sub(c.created).Seconds() > 15 {
+		// if 15s have passed, we assume this is not a duplicate
 		return false
 	}
 	return strings.Contains(c.value, c2.value) || strings.Contains(c2.value, c.value)
@@ -75,14 +75,17 @@ func (h *History) Format(f func(Clip) string) []string {
 		return []string{}
 	}
 
-	i := h.first
 	r := make([]string, 0, len(h.data))
 
+	// iterate backwards to show the more recent entries first
+	i := h.getEnd()
 	for {
 		r = append(r, f(h.data[i]))
-		i = (i + 1) % len(h.data)
 		if i == h.first {
 			break // we've gone full circle
+		}
+		if i--; i < 0 {
+			i = len(h.data) - 1
 		}
 	}
 
@@ -122,16 +125,18 @@ func (h *History) FindEntry(formatted string) (*Clip, error) {
 		return nil, err
 	}
 
-	i := h.first
+	i := h.getEnd()
 	for {
 		s := HistoryFormatter(h.data[i])
 		s, _ = removeRelativeTimeString(s)
 		if s == search {
 			return &h.data[i], nil
 		}
-		i = (i + 1) % len(h.data)
 		if i == h.first {
 			break // we've gone full circle
+		}
+		if i--; i < 0 {
+			i = len(h.data) - 1
 		}
 	}
 	return nil, errors.New("No match found")

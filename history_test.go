@@ -13,15 +13,15 @@ func TestHistory(t *testing.T) {
 	expected := []string{
 		"",
 		"0",
-		"0 1",
-		"0 1 2",
-		"0 1 2 3",
-		"0 1 2 3 4",
-		"0 1 2 3 4 5",
-		"1 2 3 4 5 6",
-		"2 3 4 5 6 7",
-		"3 4 5 6 7 8",
-		"4 5 6 7 8 9",
+		"1 0",
+		"2 1 0",
+		"3 2 1 0",
+		"4 3 2 1 0",
+		"5 4 3 2 1 0",
+		"6 5 4 3 2 1",
+		"7 6 5 4 3 2",
+		"8 7 6 5 4 3",
+		"9 8 7 6 4 3",
 	}
 
 	for i := 0; i < 9; i++ {
@@ -44,7 +44,7 @@ func TestDuplicates(t *testing.T) {
 
 	got := strings.Join(h.Format(func(c Clip) string { return c.value }), "|")
 
-	if got != "Hello world|Helo world" {
+	if got != "Helo world|Hello world" {
 		t.Errorf("History was wrong, got %s", got)
 	}
 }
@@ -94,12 +94,13 @@ func TestHistorySelect(t *testing.T) {
 
 		formatted := h.Format(HistoryFormatter)
 		for j := 0; j < len(e); j++ {
+			realIndex := len(e) - (j + 1) // because we get the first item last
 			// try to find each entry
-			c, err := h.FindEntry(formatted[j])
+			c, err := h.FindEntry(formatted[realIndex])
 			if err != nil {
-				t.Fatalf("Error finding entry %s: %s", formatted[j], err)
+				t.Fatalf("Error finding entry %s: %s", formatted[realIndex], err)
 			} else if *c != clips[j] {
-				t.Fatalf("Wrong entry found for %s: %v", formatted[j], c)
+				t.Fatalf("Wrong entry found for %s:\n%v !=\n%v", formatted[realIndex], c, clips[realIndex])
 			}
 		}
 	}

@@ -28,7 +28,7 @@ import (
 
 var X *xgb.Conn
 var screen *xproto.ScreenInfo
-var selectionPropertyAtom xproto.Atom
+var selectionPropertyAtom, clipboardAtom xproto.Atom
 
 var history *History
 var logger *log.Logger
@@ -103,7 +103,7 @@ func processEvents() {
 				s, err := extractSelection(ev.(xproto.SelectionNotifyEvent))
 				if err != nil {
 					logger.Fatalf("Failed to get selection prop %s", err)
-				} else {
+				} else if len(s) > 0 {
 					history.Append(Clip{time.Now(), s, "unknown"})
 				}
 			default:
@@ -141,6 +141,7 @@ func startX() {
 	}
 
 	selectionPropertyAtom = createAtom("CLIPCLOP_SEL")
+	clipboardAtom = createAtom("CLIPBOARD")
 }
 
 func createEventWindow() {
@@ -164,7 +165,11 @@ func createEventWindow() {
 	// Request events to it when the selection changes
 	var mask uint32 = xfixes.SelectionEventMaskSetSelectionOwner
 	if err = xfixes.SelectSelectionInputChecked(X, wid, xproto.AtomPrimary, mask).Check(); err != nil {
-		logger.Fatal("Could not select selection events ", err)
+		logger.Fatal("Could not select primary selection events ", err)
+	}
+
+	if err = xfixes.SelectSelectionInputChecked(X, wid, clipboardAtom, mask).Check(); err != nil {
+		logger.Fatal("Could not select clopboard selection events ", err)
 	}
 }
 
