@@ -1,4 +1,4 @@
-module max/clipclop
+module github.com/maxjmax/clipclop
 
 go 1.19
 

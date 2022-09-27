@@ -15,16 +15,26 @@ import (
 	"github.com/BurntSushi/xgb/xproto"
 )
 
+// TODO: image support - image blob stores in file if large? same for large text clips?
+
 // TODO: serialise to disk + resume on restart https://pkg.go.dev/encoding/gob
 // on each copy? cheaper and nicer to append to a text file and do ocassional vaccum?
+// encode newlines then use newline as a separator? -- https://pkg.go.dev/encoding/base64@go1.19.1
+// fuzztest that does some roundtrips
+// vaccum = copy the last 50 lines to a new file and then unlink the old file I guess
 
-// TODO: image support - image blob stores in file if large? same for large text clips?
+// If we _are_ only appending, then duplicates will be appended too. Either we leave far more in the file so that we
+// can drop them when we vaccum, or we only persist the _previous_ clip? (or we wait for 15s before we append), so that
+// we know that we won't need to replace the previous line in the file.
+
+// Oooorr.. we just persist the whole damn thing every now and then (15s of no activity?). This is probably good enough, right? This isn't
+// critical.
+
+// I mean really is this important at all? Probably not a priority actually.
 
 // TODO: show the source window name (configurable?)
 
-// TODO: output is backwards :(
-
-// TODO: better readme + automatic builds
+// TODO: better readme + automatic builds + aur
 
 var X *xgb.Conn
 var screen *xproto.ScreenInfo
