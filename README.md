@@ -1,5 +1,8 @@
 # ClipClop X clipboard manager
 
+[![tests](https://github.com/maxjmax/clipclop/actions/workflows/test.yaml/badge.svg)](https://github.com/maxjmax/clipclop/actions/workflows/test.yaml)
+
+
 ## Installation
 
 - Go build
