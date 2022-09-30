@@ -8,9 +8,18 @@ import (
 	"time"
 )
 
+type Format int
+
+const (
+	NoneFormat Format = iota
+	StringFormat
+	PngFormat
+)
+
 type Clip struct {
 	created time.Time
-	value   string
+	value   []uint8
+	format  Format
 	source  string
 }
 
@@ -42,7 +51,17 @@ func (c *Clip) isDuplicate(c2 Clip) bool {
 		// if 15s have passed, we assume this is not a duplicate
 		return false
 	}
-	return strings.Contains(c.value, c2.value) || strings.Contains(c2.value, c.value)
+	return strings.Contains(string(c.value), string(c2.value)) || strings.Contains(string(c2.value), string(c.value))
+}
+
+func (h *History) Top() *Clip {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if len(h.data) < 1 {
+		return nil
+	}
+	return &h.data[h.getEnd()]
 }
 
 func (h *History) Append(c Clip) {
@@ -145,7 +164,11 @@ func (h *History) FindEntry(formatted string) (*Clip, error) {
 func HistoryFormatter(c Clip) string {
 	t := getRelativeTimeString(time.Now().Sub(c.created))
 
-	lines := strings.Split(c.value, "\n")
+	if c.format == PngFormat {
+		return fmt.Sprintf("[%s] {png image %.1fkB}", t, float32(len(c.value))/1024.0)
+	}
+
+	lines := strings.Split(string(c.value), "\n")
 	line := lines[0]
 	if len(line) > 50 {
 		// TODO: not unicode safe

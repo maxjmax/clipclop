@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+func newTestClip(s string) Clip {
+	return Clip{time.Now(), []uint8(s), StringFormat, "test"}
+}
+
+func getHistoryAsLines(h *History, sep string) string {
+	return strings.Join(h.Format(func(c Clip) string { return string(c.value) }), sep)
+}
+
 func TestHistory(t *testing.T) {
 	h := newHistory(6)
 	expected := []string{
@@ -25,25 +33,24 @@ func TestHistory(t *testing.T) {
 	}
 
 	for i := 0; i < 9; i++ {
-		formatted := strings.Join(h.Format(func(c Clip) string { return c.value }), " ")
+		formatted := getHistoryAsLines(h, " ")
 		if expected[i] != formatted {
 			t.Errorf("History was wrong: got %s expected %s", formatted, expected[i])
 		}
 
-		h.Append(Clip{time.Now(), fmt.Sprint(i), "test"})
+		h.Append(newTestClip(fmt.Sprint(i)))
 	}
 }
 
 func TestDuplicates(t *testing.T) {
 	h := newHistory(6)
 
-	h.Append(Clip{time.Now(), "Hello", "test"})       // dup
-	h.Append(Clip{time.Now(), "Hell", "test"})        // dup
-	h.Append(Clip{time.Now(), "Hello world", "test"}) // dup
-	h.Append(Clip{time.Now(), "Helo world", "test"})  // not a dup
+	h.Append(newTestClip("Hello"))       // dup
+	h.Append(newTestClip("Hell"))        // dup
+	h.Append(newTestClip("Hello world")) // dup
+	h.Append(newTestClip("Helo world"))  // not a dup
 
-	got := strings.Join(h.Format(func(c Clip) string { return c.value }), "|")
-
+	got := getHistoryAsLines(h, "|")
 	if got != "Helo world|Hello world" {
 		t.Errorf("History was wrong, got %s", got)
 	}
@@ -61,7 +68,7 @@ func TestHistoryFormat(t *testing.T) {
 		}
 
 	for _, vals := range expected {
-		h.Append(Clip{time.Now(), vals[0], "test"})
+		h.Append(newTestClip(vals[0]))
 		f := h.Format(HistoryFormatter)
 		if f[0] != vals[1] {
 			t.Errorf("Format was wrong, expected %s got %s", vals[1], f[0])
@@ -87,7 +94,7 @@ func TestHistorySelect(t *testing.T) {
 		h := newHistory(10)
 		for i, str := range e {
 			// separate the clip times to avoid removal of dups
-			clip := Clip{time.Now().Add(time.Hour * time.Duration(i)), str, "test"}
+			clip := Clip{time.Now().Add(time.Hour * time.Duration(i)), []uint8(str), StringFormat, "test"}
 			clips = append(clips, clip)
 			h.Append(clip)
 		}
@@ -99,7 +106,7 @@ func TestHistorySelect(t *testing.T) {
 			c, err := h.FindEntry(formatted[realIndex])
 			if err != nil {
 				t.Fatalf("Error finding entry %s: %s", formatted[realIndex], err)
-			} else if *c != clips[j] {
+			} else if string(c.value) != string(clips[j].value) {
 				t.Fatalf("Wrong entry found for %s:\n%v !=\n%v", formatted[realIndex], c, clips[realIndex])
 			}
 		}
