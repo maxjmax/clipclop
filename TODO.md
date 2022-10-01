@@ -24,6 +24,7 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 
 ## Builds
 
+- TODO screenshot
 - TODO better readme with setup instructions
 - TODO automatic release builds
 - TODO submit to aur

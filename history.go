@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -114,12 +115,15 @@ func (h *History) Format(f func(Clip) string) []string {
 func getRelativeTimeString(td time.Duration) string {
 	s := td.Seconds()
 	if s < 120 {
-		return fmt.Sprintf("%2ds ago", int(s))
+		return fmt.Sprintf("%2ds ago", int(math.Round(s)))
 	}
 	if s < 120*60 {
-		return fmt.Sprintf("%2dm ago", int(s/60))
+		return fmt.Sprintf("%2dm ago", int(math.Round(s/60)))
 	}
-	return fmt.Sprintf("%2dh ago", int(s/60*60))
+	if s < 120*60*24 {
+		return fmt.Sprintf("%2dh ago", int(math.Round(s/(60*60))))
+	}
+	return fmt.Sprintf("%2dd ago", int(math.Round(s/(60*60*24))))
 }
 
 func removeRelativeTimeString(s string) (string, error) {

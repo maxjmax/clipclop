@@ -112,3 +112,31 @@ func TestHistorySelect(t *testing.T) {
 		}
 	}
 }
+
+func TestHistoryTimeString(t *testing.T) {
+	durations := [][]string{
+		{"1s", " 1s ago"},
+		{"60s", "60s ago"},
+		{"80s", "80s ago"},
+		{"140s", " 2m ago"},
+		{"3m", " 3m ago"},
+		{"60m", "60m ago"},
+		{"180m", " 3h ago"},
+		{"12h", "12h ago"},
+		{"17h20m", "17h ago"},
+		{"17h40m", "18h ago"},
+		{"25h", "25h ago"},
+		{"120h", " 5d ago"},
+	}
+
+	for _, str := range durations {
+		d, err := time.ParseDuration(str[0])
+		if err != nil {
+			t.Fatalf("Could not parse duration: %s", err)
+		}
+		r := getRelativeTimeString(d)
+		if r != str[1] {
+			t.Fatalf("Incorrect duration string: got %s expected %s", r, str[1])
+		}
+	}
+}
