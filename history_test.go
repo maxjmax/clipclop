@@ -59,20 +59,33 @@ func TestDuplicates(t *testing.T) {
 func TestHistoryFormat(t *testing.T) {
 	h := newHistory(1)
 
-	expected :=
-		[][]string{
-			{"Hello", "[ 0s ago] Hello"},
-			{"	Hello", "[ 0s ago] Hello"},
-			{strings.Repeat("Hello", 12), "[ 0s ago] HelloHelloHelloHelloHelloHelloHelloHelloHelloHe..."},
-			{"Hello\nHello\nHello", "[ 0s ago] Hello [+2 lines]"},
-			{strings.Repeat("Hello", 12) + "\nHello", "[ 0s ago] HelloHelloHelloHelloHelloHelloHelloHelloHelloHe... [+1 lines]"},
-		}
+	clips := []string{
+		"Hello",
+		" 	Hello",
+		strings.Repeat("Hello", 12),
+		"Hello\nHello\nHello",
+		strings.Repeat("Hello", 12) + "\nHello",
+	}
 
-	for _, vals := range expected {
-		h.Append(newTestClip(vals[0]))
-		f := h.Format(HistoryFormatter)
-		if f[0] != vals[1] {
-			t.Errorf("Format was wrong, expected %s got %s", vals[1], f[0])
+	expected := []string{
+		"[ 0s ago] {png image 0.0kB}                                 ",
+		"[ 0s ago] HelloHelloHelloHelloHelloHelloHelloH... [+1 lines]",
+		"[ 0s ago] Hello                                   [+2 lines]",
+		"[ 0s ago] HelloHelloHelloHelloHelloHelloHelloHelloHelloHe...",
+		"[ 0s ago] Hello                                             ",
+		"[ 0s ago] Hello                                             ",
+	}
+
+	for _, s := range clips {
+		h.Append(newTestClip(s))
+	}
+	h.Append(Clip{time.Now(), []uint8{}, PngFormat, "test"})
+
+	f := h.Format(HistoryFormatter)
+
+	for i := range f {
+		if f[i] != expected[i] {
+			t.Errorf("Format was wrong, expected %s got %s", expected[i], f[0])
 		}
 	}
 }
@@ -86,6 +99,7 @@ func TestHistorySelect(t *testing.T) {
 		"This is a clip",
 		"clip",
 		"c",
+		"%@&",
 	}
 
 	for i := 0; i < 5; i++ {

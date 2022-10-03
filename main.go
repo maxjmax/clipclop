@@ -25,7 +25,7 @@ func usage() {
 		flag.CommandLine.Output(),
 		`Usage: clipclip [ARGUMENTS]
 
-clipclop is a clipboard managment daemon. It listens for changes to the X 
+clipclop is a clipboard management daemon. It listens for changes to the X 
 selection and stores them in a ring buffer. Selections are not persisted to disk
 	
 Arguments:
@@ -82,47 +82,50 @@ func processEvents() {
 			logger.Fatal("Wait for event failed")
 			return
 		}
-
-		if ev != nil {
-			switch ev.(type) {
-			case xfixes.SelectionNotifyEvent:
-				err := x.ConvertSelection(ev.(xfixes.SelectionNotifyEvent))
-				if err != nil {
-					logger.Printf("Failed to convert selection: %s", err)
-				}
-			case xproto.SelectionNotifyEvent:
-				err, data, format := x.GetSelection(ev.(xproto.SelectionNotifyEvent))
-				if err != nil {
-					logger.Printf("Failed to get selection: %s", err)
-				}
-				if data != nil {
-					// We got a selection
-					history.Append(Clip{time.Now(), data, format, "unknown"})
-				}
-
-			case xproto.SelectionRequestEvent:
-				// Let the requestor know what target is availble for the current clip
-				if selectedClip == nil {
-					selectedClip = history.Top()
-				}
-				if selectedClip == nil {
-					logger.Print("Nothing in history to share")
-				}
-				err := x.SetSelection(ev.(xproto.SelectionRequestEvent), &selectedClip.value, selectedClip.format)
-				if err != nil {
-					logger.Printf("Could not set selection for requestor: %s", err)
-				}
-			case xproto.SelectionClearEvent:
-				// Something else has taken ownership, that's fine.
-
-			default:
-				logger.Printf("Unknown Event: %s\n", ev)
-			}
-			// TODO: if fmtid is INCRID then we need extra logic for that
-		}
 		if xerr != nil {
 			logger.Printf("Error waiting for event: %s\n", xerr)
+			continue
 		}
+		if ev == nil {
+			continue
+		}
+
+		switch ev.(type) {
+		case xfixes.SelectionNotifyEvent:
+			err := x.ConvertSelection(ev.(xfixes.SelectionNotifyEvent))
+			if err != nil {
+				logger.Printf("Failed to convert selection: %s", err)
+			}
+		case xproto.SelectionNotifyEvent:
+			err, data, format := x.GetSelection(ev.(xproto.SelectionNotifyEvent))
+			if err != nil {
+				logger.Printf("Failed to get selection: %s", err)
+			}
+			if data != nil {
+				// We got a selection
+				history.Append(Clip{time.Now(), data, format, "unknown"})
+			}
+
+		case xproto.SelectionRequestEvent:
+			// Let the requestor know what target is available for the current clip
+			if selectedClip == nil {
+				selectedClip = history.Top()
+			}
+			if selectedClip == nil {
+				logger.Print("Nothing in history to share")
+			}
+			err := x.SetSelection(ev.(xproto.SelectionRequestEvent), &selectedClip.value, selectedClip.format)
+			if err != nil {
+				logger.Printf("Could not set selection for requestor: %s", err)
+			}
+		case xproto.SelectionClearEvent:
+			// Something else has taken ownership
+
+		default:
+			logger.Printf("Unknown Event: %s\n", ev)
+		}
+		// TODO: if fmtid is INCRID then we need extra logic for that
+
 	}
 }
 

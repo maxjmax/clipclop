@@ -1,11 +1,11 @@
 # ClipClop X clipboard manager
 
 [![tests](https://github.com/maxjmax/clipclop/actions/workflows/test.yaml/badge.svg)](https://github.com/maxjmax/clipclop/actions/workflows/test.yaml)
-
+[![Go Report Card](https://goreportcard.com/badge/github.com/maxjmax/clipclop)](https://goreportcard.com/report/github.com/maxjmax/clipclop)
 
 ## Status
 
-Beta. I use it.
+Beta. I use it, but there's probably a few issues remaining.
 
 ## Installation
 
@@ -16,3 +16,8 @@ Beta. I use it.
 ## Usage
 
 `clipclop -h`
+
+## Similar projects
+
+- clipmenu
+- etc. https://wiki.archlinux.org/title/clipboard#Managers

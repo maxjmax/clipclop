@@ -11,6 +11,8 @@ import (
 
 type Format int
 
+const lineLen = 60
+
 const (
 	NoneFormat Format = iota
 	StringFormat
@@ -143,16 +145,17 @@ func (h *History) FindEntry(formatted string) (*Clip, error) {
 		return nil, errors.New("Empty history")
 	}
 
-	search, err := removeRelativeTimeString(strings.Trim(formatted, "\n "))
+	search, err := removeRelativeTimeString(formatted)
 	if err != nil {
 		return nil, err
 	}
+	search = strings.Trim(search, "\n ")
 
 	i := h.getEnd()
 	for {
 		s := HistoryFormatter(h.data[i])
 		s, _ = removeRelativeTimeString(s)
-		if s == search {
+		if strings.Trim(s, "\n ") == search {
 			return &h.data[i], nil
 		}
 		if i == h.first {
@@ -166,20 +169,23 @@ func (h *History) FindEntry(formatted string) (*Clip, error) {
 }
 
 func HistoryFormatter(c Clip) string {
-	t := getRelativeTimeString(time.Now().Sub(c.created))
+	var line, post string
+	pre := fmt.Sprintf("[%s] ", getRelativeTimeString(time.Now().Sub(c.created)))
 
 	if c.format == PngFormat {
-		return fmt.Sprintf("[%s] {png image %.1fkB}", t, float32(len(c.value))/1024.0)
+		line = fmt.Sprintf("{png image %.1fkB}", float32(len(c.value))/1024.0)
+	} else {
+		lines := strings.Split(string(c.value), "\n")
+		line = strings.Trim(lines[0], " \n\t")
+		if len(lines) > 1 {
+			post = fmt.Sprintf(" [+%d lines]", len(lines)-1)
+		}
 	}
 
-	lines := strings.Split(string(c.value), "\n")
-	line := strings.Trim(lines[0], " \n\t")
-	if len(line) > 50 {
+	rem := lineLen - len(pre) - len(post)
+	if len(line) > rem {
 		// TODO: not unicode safe
-		line = line[:47] + "..."
+		line = line[:(rem-3)] + "..."
 	}
-	if len(lines) > 1 {
-		line = fmt.Sprintf("%s [+%d lines]", line, len(lines)-1)
-	}
-	return fmt.Sprintf("[%s] %s", t, line)
+	return fmt.Sprintf("%s%*s%s", pre, -rem, line, post)
 }
