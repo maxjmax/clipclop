@@ -173,7 +173,7 @@ func (x *X) SetSelection(ev xproto.SelectionRequestEvent, data *[]uint8, format 
 		err = xproto.ChangePropertyChecked(x.conn, xproto.PropModeReplace, ev.Requestor, ev.Property, xproto.AtomAtom, 32, 2, data).Check()
 	} else {
 		// target := x.formatToAtom(currentClip.format)
-		target := ev.Target //
+		target := ev.Target
 		data := []byte(*data)
 		err = xproto.ChangePropertyChecked(x.conn, xproto.PropModeReplace, ev.Requestor, ev.Property, target, 8, uint32(len(data)), data).Check()
 	}
@@ -195,7 +195,11 @@ func (x *X) SetSelection(ev xproto.SelectionRequestEvent, data *[]uint8, format 
 }
 
 func (x *X) BecomeSelectionOwner() error {
-	return xproto.SetSelectionOwnerChecked(x.conn, *x.window, xproto.AtomPrimary, xproto.TimeCurrentTime).Check()
+	err := xproto.SetSelectionOwnerChecked(x.conn, *x.window, xproto.AtomPrimary, xproto.TimeCurrentTime).Check()
+	if err != nil {
+		return err
+	}
+	return xproto.SetSelectionOwnerChecked(x.conn, *x.window, x.atoms.clipboard, xproto.TimeCurrentTime).Check()
 }
 
 func (x *X) atomToFormat(atom xproto.Atom) Format {

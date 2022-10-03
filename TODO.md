@@ -5,6 +5,13 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 ## Next
 
 - TODO Set both clipboard and primary on selection (configurable?)
+- TODO pad every line so that the [+x lines] and image size always end up in the right place
+    +x lines could be variable length, as could size, so need to account for that in the padding
+    push to 60chars wide default? Configurable?
+    then screenshot
+- TODO Pasting an image of ~490kB into an email gives this error:
+    `clipclop[2243040]: 2022/10/03 08:55:19 main.go:113: Could not set selection for requestor: BadLength {NiceName: Length, Sequence: 106, BadValue: 8388608, MinorOpcode: 0, MajorOpcode: 18}`
+    Guessing too large to do in one go?
 
 ## Image support
 

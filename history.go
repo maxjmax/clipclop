@@ -173,7 +173,7 @@ func HistoryFormatter(c Clip) string {
 	}
 
 	lines := strings.Split(string(c.value), "\n")
-	line := lines[0]
+	line := strings.Trim(lines[0], " \n\t")
 	if len(line) > 50 {
 		// TODO: not unicode safe
 		line = line[:47] + "..."

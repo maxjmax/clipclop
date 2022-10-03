@@ -88,12 +88,12 @@ func processEvents() {
 			case xfixes.SelectionNotifyEvent:
 				err := x.ConvertSelection(ev.(xfixes.SelectionNotifyEvent))
 				if err != nil {
-					logger.Fatalf("Failed to convert selection: %s", err)
+					logger.Printf("Failed to convert selection: %s", err)
 				}
 			case xproto.SelectionNotifyEvent:
 				err, data, format := x.GetSelection(ev.(xproto.SelectionNotifyEvent))
 				if err != nil {
-					logger.Fatalf("Failed to get selection: %s", err)
+					logger.Printf("Failed to get selection: %s", err)
 				}
 				if data != nil {
 					// We got a selection
@@ -110,7 +110,7 @@ func processEvents() {
 				}
 				err := x.SetSelection(ev.(xproto.SelectionRequestEvent), &selectedClip.value, selectedClip.format)
 				if err != nil {
-					logger.Fatalf("Could not set selection for requestor: %s", err)
+					logger.Printf("Could not set selection for requestor: %s", err)
 				}
 			case xproto.SelectionClearEvent:
 				// Something else has taken ownership, that's fine.

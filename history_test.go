@@ -62,6 +62,7 @@ func TestHistoryFormat(t *testing.T) {
 	expected :=
 		[][]string{
 			{"Hello", "[ 0s ago] Hello"},
+			{"	Hello", "[ 0s ago] Hello"},
 			{strings.Repeat("Hello", 12), "[ 0s ago] HelloHelloHelloHelloHelloHelloHelloHelloHelloHe..."},
 			{"Hello\nHello\nHello", "[ 0s ago] Hello [+2 lines]"},
 			{strings.Repeat("Hello", 12) + "\nHello", "[ 0s ago] HelloHelloHelloHelloHelloHelloHelloHelloHelloHe... [+1 lines]"},
