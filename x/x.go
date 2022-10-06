@@ -1,15 +1,15 @@
-package main
+package x
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/BurntSushi/xgb"
 	"github.com/BurntSushi/xgb/xfixes"
 	"github.com/BurntSushi/xgb/xproto"
+	"github.com/maxjmax/clipclop/history"
 )
 
-type Atoms struct {
+type atoms struct {
 	selectionProperty xproto.Atom
 	clipboard         xproto.Atom
 	targets           xproto.Atom
@@ -22,17 +22,17 @@ type X struct {
 	conn   *xgb.Conn
 	window *xproto.Window
 	screen *xproto.ScreenInfo
-	atoms  Atoms
+	atoms  atoms
 }
 
-func startX() (*X, error) {
+func StartX() (*X, error) {
 	conn, err := xgb.NewConn()
 	if err != nil {
-		return nil, fmt.Errorf("Could not create X connection: %w", err)
+		return nil, fmt.Errorf("could not create X connection: %w", err)
 	}
 
 	if err = xfixes.Init(conn); err != nil {
-		return nil, fmt.Errorf("Could not init xfixes extension : %w", err)
+		return nil, fmt.Errorf("could not init xfixes extension : %w", err)
 	}
 
 	setup := xproto.Setup(conn)
@@ -42,11 +42,11 @@ func startX() (*X, error) {
 	// The client must negotiate the version of the extension before executing
 	// extension requests.  Behavior of the server is undefined otherwise.
 	if _, err = xfixes.QueryVersion(conn, 2, 0).Reply(); err != nil {
-		return nil, fmt.Errorf("Could not negotiate xfixes version: %w", err)
+		return nil, fmt.Errorf("could not negotiate xfixes version: %w", err)
 	}
 
 	// TODO: eh, not pretty, don't want to use a map
-	atoms := Atoms{
+	atoms := atoms{
 		selectionProperty: createAtom(conn, "CLIPCLOP_SEL"),
 		clipboard:         createAtom(conn, "CLIPBOARD"),
 		targets:           createAtom(conn, "TARGETS"),
@@ -60,7 +60,7 @@ func startX() (*X, error) {
 		atoms.incr == xproto.AtomNone ||
 		atoms.png == xproto.AtomNone ||
 		atoms.utf8 == xproto.AtomNone {
-		return nil, errors.New(fmt.Sprintf("Could not create atom: %v", atoms))
+		return nil, fmt.Errorf("could not create atom: %v", atoms)
 	}
 
 	return &X{
@@ -73,7 +73,7 @@ func startX() (*X, error) {
 func (x *X) CreateEventWindow() error {
 	wid, err := xproto.NewWindowId(x.conn)
 	if err != nil {
-		return fmt.Errorf("Could not get window ID: %w", err)
+		return fmt.Errorf("could not get window ID: %w", err)
 	}
 
 	err = xproto.CreateWindowChecked(
@@ -82,7 +82,7 @@ func (x *X) CreateEventWindow() error {
 		0, []uint32{},
 	).Check()
 	if err != nil {
-		return fmt.Errorf("Could not create event window : %w", err)
+		return fmt.Errorf("could not create event window : %w", err)
 	}
 
 	// We can still handle events without mapping (showing) the window
@@ -91,11 +91,11 @@ func (x *X) CreateEventWindow() error {
 	// Request events to it when the selection changes
 	var mask uint32 = xfixes.SelectionEventMaskSetSelectionOwner
 	if err = xfixes.SelectSelectionInputChecked(x.conn, wid, xproto.AtomPrimary, mask).Check(); err != nil {
-		return fmt.Errorf("Could not select primary selection events: %w", err)
+		return fmt.Errorf("could not select primary selection events: %w", err)
 	}
 
 	if err = xfixes.SelectSelectionInputChecked(x.conn, wid, x.atoms.clipboard, mask).Check(); err != nil {
-		return fmt.Errorf("Could not select clipboard selection events: %w", err)
+		return fmt.Errorf("could not select clipboard selection events: %w", err)
 	}
 
 	x.window = &wid
@@ -115,26 +115,27 @@ func (x *X) ConvertSelection(ev xfixes.SelectionNotifyEvent) error {
 		x.conn, ev.Window, ev.Selection, x.atoms.targets, x.atoms.targets, ev.SelectionTimestamp).Check()
 }
 
-func (x *X) GetSelection(ev xproto.SelectionNotifyEvent) (error, []uint8, Format) {
+// TODO: shouldn't be using history formats here?
+func (x *X) GetSelection(ev xproto.SelectionNotifyEvent) ([]uint8, history.ClipFormat, error) {
 	if ev.Property == x.atoms.targets {
 		target, err := x.chooseTarget(ev)
 		if err != nil {
-			return fmt.Errorf("Failed to choose target: %w", err), nil, NoneFormat
+			return nil, history.NoneFormat, fmt.Errorf("failed to choose target: %w", err)
 		}
 		err = xproto.ConvertSelectionChecked(x.conn, ev.Requestor, ev.Selection, target, x.atoms.selectionProperty, ev.Time).Check()
 		if err != nil {
-			return fmt.Errorf("Error requesting selection convert to %d, %w", target, err), nil, NoneFormat
+			return nil, history.NoneFormat, fmt.Errorf("error requesting selection convert to %d, %w", target, err)
 		}
 	} else {
 		reply, err := xproto.GetProperty(x.conn, true, ev.Requestor, x.atoms.selectionProperty, ev.Target, 0, (1<<32)-1).Reply()
 		if err != nil {
-			return fmt.Errorf("Failed to get selection prop: %w", err), nil, NoneFormat
+			return nil, history.NoneFormat, fmt.Errorf("failed to get selection prop: %w", err)
 		} else if len(reply.Value) > 0 {
-			return nil, reply.Value, x.atomToFormat(ev.Target)
+			return reply.Value, x.atomToFormat(ev.Target), nil
 		}
 	}
 	// Empty selection
-	return nil, nil, NoneFormat
+	return nil, history.NoneFormat, nil
 }
 
 func (x *X) chooseTarget(ev xproto.SelectionNotifyEvent) (xproto.Atom, error) {
@@ -157,15 +158,13 @@ func (x *X) chooseTarget(ev xproto.SelectionNotifyEvent) (xproto.Atom, error) {
 	return xproto.AtomString, nil
 }
 
-func (x *X) SetSelection(ev xproto.SelectionRequestEvent, data *[]uint8, format Format) error {
-	// TODO: debug
-	requestedTargetReply, err := xproto.GetAtomName(x.conn, ev.Target).Reply()
-	if err != nil {
-		return err
-	} else {
-		logger.Printf("Selection was requested in format %s", requestedTargetReply.Name)
-	}
+func (x *X) SetSelection(ev xproto.SelectionRequestEvent, data *[]uint8, format history.ClipFormat) error {
 
+	// TODO: if too big, we need to set the type of the property to INCR and set the value to the number of bytes total.
+	// then we need to go back to the loop, -- which means we probably need to have some global state (well, in X) corresponding to
+	// the thing currently being sent.
+
+	var err error
 	if ev.Target == x.atoms.targets {
 		data := make([]byte, 8)
 		xgb.Put32(data, uint32(x.formatToAtom(format)))
@@ -202,19 +201,18 @@ func (x *X) BecomeSelectionOwner() error {
 	return xproto.SetSelectionOwnerChecked(x.conn, *x.window, x.atoms.clipboard, xproto.TimeCurrentTime).Check()
 }
 
-func (x *X) atomToFormat(atom xproto.Atom) Format {
+func (x *X) atomToFormat(atom xproto.Atom) history.ClipFormat {
 	if atom == x.atoms.utf8 || atom == xproto.AtomString {
-		return StringFormat
+		return history.StringFormat
 	}
 	if atom == x.atoms.png {
-		return PngFormat
+		return history.PngFormat
 	}
-	logger.Fatalf("Invalid format atom %d", atom)
-	return 0
+	return history.NoneFormat
 }
 
-func (x *X) formatToAtom(f Format) xproto.Atom {
-	if f == PngFormat {
+func (x *X) formatToAtom(f history.ClipFormat) xproto.Atom {
+	if f == history.PngFormat {
 		return x.atoms.png
 	}
 	return xproto.AtomString

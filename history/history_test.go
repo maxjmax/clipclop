@@ -1,4 +1,4 @@
-package main
+package history
 
 import (
 	"fmt"
@@ -13,11 +13,11 @@ func newTestClip(s string) Clip {
 }
 
 func getHistoryAsLines(h *History, sep string) string {
-	return strings.Join(h.Format(func(c Clip) string { return string(c.value) }), sep)
+	return strings.Join(h.Format(func(c Clip) string { return string(c.Value) }), sep)
 }
 
 func TestHistory(t *testing.T) {
-	h := newHistory(6)
+	h := NewHistory(6)
 	expected := []string{
 		"",
 		"0",
@@ -43,7 +43,7 @@ func TestHistory(t *testing.T) {
 }
 
 func TestDuplicates(t *testing.T) {
-	h := newHistory(6)
+	h := NewHistory(6)
 
 	h.Append(newTestClip("Hello"))       // dup
 	h.Append(newTestClip("Hell"))        // dup
@@ -57,7 +57,7 @@ func TestDuplicates(t *testing.T) {
 }
 
 func TestHistoryFormat(t *testing.T) {
-	h := newHistory(1)
+	h := NewHistory(1)
 
 	clips := []string{
 		"Hello",
@@ -106,7 +106,7 @@ func TestHistorySelect(t *testing.T) {
 		// Shuffle the array differently each time to make sure order doesn't matter
 		rand.Shuffle(len(e), func(i, j int) { e[i], e[j] = e[j], e[i] })
 		clips := make([]Clip, 0, len(e))
-		h := newHistory(10)
+		h := NewHistory(10)
 		for i, str := range e {
 			// separate the clip times to avoid removal of dups
 			clip := Clip{time.Now().Add(time.Hour * time.Duration(i)), []uint8(str), StringFormat, "test"}
@@ -121,7 +121,7 @@ func TestHistorySelect(t *testing.T) {
 			c, err := h.FindEntry(formatted[realIndex])
 			if err != nil {
 				t.Fatalf("Error finding entry %s: %s", formatted[realIndex], err)
-			} else if string(c.value) != string(clips[j].value) {
+			} else if string(c.Value) != string(clips[j].Value) {
 				t.Fatalf("Wrong entry found for %s:\n%v !=\n%v", formatted[realIndex], c, clips[realIndex])
 			}
 		}
@@ -147,7 +147,7 @@ func TestHistoryTimeString(t *testing.T) {
 	for _, str := range durations {
 		d, err := time.ParseDuration(str[0])
 		if err != nil {
-			t.Fatalf("Could not parse duration: %s", err)
+			t.Fatalf("could not parse duration: %s", err)
 		}
 		r := getRelativeTimeString(d)
 		if r != str[1] {

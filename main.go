@@ -3,22 +3,16 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/BurntSushi/xgb/xfixes"
 	"github.com/BurntSushi/xgb/xproto"
+	"github.com/maxjmax/clipclop/history"
+	"github.com/maxjmax/clipclop/ipc"
+	"github.com/maxjmax/clipclop/x"
 )
-
-var selectedClip *Clip
-var x *X
-
-var history *History
-var logger *log.Logger
 
 func usage() {
 	fmt.Fprint(
@@ -47,7 +41,6 @@ For an example of how to use this with dmenu, see clip.sh in the clipclop repo.
 }
 
 func main() {
-	var err error
 	var sock string
 	var historySize int
 
@@ -55,29 +48,33 @@ func main() {
 	flag.StringVar(&sock, "socket", "/tmp/clipclop.sock", "location of the socket file")
 	flag.IntVar(&historySize, "n", 100, "Number of records to keep in history")
 	flag.Parse()
+	logger := log.New(os.Stdout, "", log.Lshortfile|log.Ldate|log.Ltime)
 
-	logger = log.New(os.Stdout, "", log.Lshortfile|log.Ldate|log.Ltime)
-	history = newHistory(historySize)
+	run(logger, sock, historySize)
+}
 
-	x, err = startX()
+func run(logger *log.Logger, sock string, historySize int) {
+	var err error
+
+	hist := history.NewHistory(historySize)
+	xconn, err := x.StartX()
 	if err != nil {
-		logger.Printf("Error starting X: %s", err)
+		logger.Fatalf("Error starting X: %s", err)
 	}
 
-	err = x.CreateEventWindow()
+	err = xconn.CreateEventWindow()
 	if err != nil {
-		logger.Printf("Error creating event window: %s", err)
+		logger.Fatalf("Error creating event window: %s", err)
 	}
 	logger.Print("Listening for X events")
 
-	go ipcServer(sock)
-
-	processEvents()
+	go ipc.IPCServer(sock, logger, hist, xconn)
+	processEvents(logger, hist, xconn)
 }
 
-func processEvents() {
+func processEvents(logger *log.Logger, hist *history.History, xconn *x.X) {
 	for {
-		ev, xerr := x.NextEvent()
+		ev, xerr := xconn.NextEvent()
 		if ev == nil && xerr == nil {
 			logger.Fatal("Wait for event failed")
 			return
@@ -90,33 +87,33 @@ func processEvents() {
 			continue
 		}
 
-		switch ev.(type) {
+		switch ev := ev.(type) {
 		case xfixes.SelectionNotifyEvent:
-			err := x.ConvertSelection(ev.(xfixes.SelectionNotifyEvent))
+			err := xconn.ConvertSelection(ev)
 			if err != nil {
 				logger.Printf("Failed to convert selection: %s", err)
 			}
+
 		case xproto.SelectionNotifyEvent:
-			err, data, format := x.GetSelection(ev.(xproto.SelectionNotifyEvent))
+			data, format, err := xconn.GetSelection(ev)
 			if err != nil {
 				logger.Printf("Failed to get selection: %s", err)
 			}
 			if data != nil {
 				// We got a selection
-				history.Append(Clip{time.Now(), data, format, "unknown"})
+				hist.Append(history.Clip{Created: time.Now(), Value: data, Format: format, Source: "unknown"})
 			}
 
 		case xproto.SelectionRequestEvent:
 			// Let the requestor know what target is available for the current clip
-			if selectedClip == nil {
-				selectedClip = history.Top()
-			}
+			selectedClip := hist.GetSelected()
 			if selectedClip == nil {
 				logger.Print("Nothing in history to share")
-			}
-			err := x.SetSelection(ev.(xproto.SelectionRequestEvent), &selectedClip.value, selectedClip.format)
-			if err != nil {
-				logger.Printf("Could not set selection for requestor: %s", err)
+			} else {
+				err := xconn.SetSelection(ev, &selectedClip.Value, selectedClip.Format)
+				if err != nil {
+					logger.Printf("could not set selection for requestor: %s", err)
+				}
 			}
 		case xproto.SelectionClearEvent:
 			// Something else has taken ownership
@@ -126,58 +123,5 @@ func processEvents() {
 		}
 		// TODO: if fmtid is INCRID then we need extra logic for that
 
-	}
-}
-
-func handleCommand(cmd string) string {
-	if len(cmd) < 3 {
-		return "ERR Invalid command" // commands are 3 characters
-	}
-	switch cmd[:3] {
-	case "GET":
-		return strings.Join(history.Format(HistoryFormatter), "\n") + "\n"
-	case "SEL":
-		clip, err := history.FindEntry(cmd[3:])
-		if err != nil {
-			return fmt.Sprintf("ERR Not found: %s", err)
-		}
-
-		selectedClip = clip
-		err = x.BecomeSelectionOwner()
-		if err != nil {
-			return fmt.Sprintf("ERR Could not become owner: %s", err)
-		}
-		return "OK"
-	default:
-		return "ERR Unknown command"
-	}
-}
-
-func ipcServer(sock string) {
-	if err := os.RemoveAll(sock); err != nil {
-		logger.Fatalf("Could not remove IPC socket file %s", sock)
-	}
-
-	listener, err := net.Listen("unix", sock)
-	if err != nil {
-		logger.Fatalf("Could not listen on %s: %s", sock, err)
-	}
-	logger.Printf("Listening on socket %s", sock)
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			logger.Fatal("Could not accept connection ", err)
-		}
-
-		cmd, err := ioutil.ReadAll(conn)
-		if err != nil {
-			logger.Print("Could not accept connection ", err)
-		} else {
-			output := handleCommand(string(cmd))
-			conn.Write([]byte(output))
-		}
-
-		conn.Close()
 	}
 }

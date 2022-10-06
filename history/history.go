@@ -1,4 +1,4 @@
-package main
+package history
 
 import (
 	"errors"
@@ -9,30 +9,31 @@ import (
 	"time"
 )
 
-type Format int
+type ClipFormat int
 
 const lineLen = 60
 
 const (
-	NoneFormat Format = iota
+	NoneFormat ClipFormat = iota
 	StringFormat
 	PngFormat
 )
 
 type Clip struct {
-	created time.Time
-	value   []uint8
-	format  Format
-	source  string
+	Created time.Time
+	Value   []uint8
+	Format  ClipFormat
+	Source  string
 }
 
 type History struct {
-	data  []Clip
-	first int
-	mu    sync.RWMutex
+	data     []Clip
+	first    int
+	selected *Clip
+	mu       sync.RWMutex
 }
 
-func newHistory(maxSize int) *History {
+func NewHistory(maxSize int) *History {
 	h := History{
 		data:  make([]Clip, 0, maxSize),
 		first: 0,
@@ -40,21 +41,15 @@ func newHistory(maxSize int) *History {
 	return &h
 }
 
-// undefined if empty
-func (h *History) getEnd() int {
-	lastIndex := h.first - 1
-	if lastIndex < 0 {
-		return len(h.data) - 1
-	}
-	return lastIndex
+func (h *History) SetSelected(c *Clip) {
+	h.selected = c
 }
 
-func (c *Clip) isDuplicate(c2 Clip) bool {
-	if c2.created.Sub(c.created).Seconds() > 15 {
-		// if 15s have passed, we assume this is not a duplicate
-		return false
+func (h *History) GetSelected() *Clip {
+	if h.selected == nil {
+		return h.Top()
 	}
-	return strings.Contains(string(c.value), string(c2.value)) || strings.Contains(string(c2.value), string(c.value))
+	return h.selected
 }
 
 func (h *History) Top() *Clip {
@@ -114,35 +109,12 @@ func (h *History) Format(f func(Clip) string) []string {
 	return r
 }
 
-func getRelativeTimeString(td time.Duration) string {
-	s := td.Seconds()
-	if s < 120 {
-		return fmt.Sprintf("%2ds ago", int(math.Round(s)))
-	}
-	if s < 120*60 {
-		return fmt.Sprintf("%2dm ago", int(math.Round(s/60)))
-	}
-	if s < 120*60*24 {
-		return fmt.Sprintf("%2dh ago", int(math.Round(s/(60*60))))
-	}
-	return fmt.Sprintf("%2dd ago", int(math.Round(s/(60*60*24))))
-}
-
-func removeRelativeTimeString(s string) (string, error) {
-	start := strings.Index(s, "]")
-	if start < 0 {
-		return "", errors.New("Missing relative time from selection")
-	}
-
-	return s[start+1:], nil
-}
-
 func (h *History) FindEntry(formatted string) (*Clip, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	if len(h.data) == 0 {
-		return nil, errors.New("Empty history")
+		return nil, errors.New("empty history")
 	}
 
 	search, err := removeRelativeTimeString(formatted)
@@ -165,17 +137,17 @@ func (h *History) FindEntry(formatted string) (*Clip, error) {
 			i = len(h.data) - 1
 		}
 	}
-	return nil, errors.New("No match found")
+	return nil, errors.New("no match found")
 }
 
 func HistoryFormatter(c Clip) string {
 	var line, post string
-	pre := fmt.Sprintf("[%s] ", getRelativeTimeString(time.Now().Sub(c.created)))
+	pre := fmt.Sprintf("[%s] ", getRelativeTimeString(time.Since(c.Created)))
 
-	if c.format == PngFormat {
-		line = fmt.Sprintf("{png image %.1fkB}", float32(len(c.value))/1024.0)
+	if c.Format == PngFormat {
+		line = fmt.Sprintf("{png image %.1fkB}", float32(len(c.Value))/1024.0)
 	} else {
-		lines := strings.Split(string(c.value), "\n")
+		lines := strings.Split(string(c.Value), "\n")
 		line = strings.Trim(lines[0], " \n\t")
 		if len(lines) > 1 {
 			post = fmt.Sprintf(" [+%d lines]", len(lines)-1)
@@ -188,4 +160,44 @@ func HistoryFormatter(c Clip) string {
 		line = line[:(rem-3)] + "..."
 	}
 	return fmt.Sprintf("%s%*s%s", pre, -rem, line, post)
+}
+
+// undefined if empty
+func (h *History) getEnd() int {
+	lastIndex := h.first - 1
+	if lastIndex < 0 {
+		return len(h.data) - 1
+	}
+	return lastIndex
+}
+
+func (c *Clip) isDuplicate(c2 Clip) bool {
+	if c2.Created.Sub(c.Created).Seconds() > 15 {
+		// if 15s have passed, we assume this is not a duplicate
+		return false
+	}
+	return strings.Contains(string(c.Value), string(c2.Value)) || strings.Contains(string(c2.Value), string(c.Value))
+}
+
+func getRelativeTimeString(td time.Duration) string {
+	s := td.Seconds()
+	if s < 120 {
+		return fmt.Sprintf("%2ds ago", int(math.Round(s)))
+	}
+	if s < 120*60 {
+		return fmt.Sprintf("%2dm ago", int(math.Round(s/60)))
+	}
+	if s < 120*60*24 {
+		return fmt.Sprintf("%2dh ago", int(math.Round(s/(60*60))))
+	}
+	return fmt.Sprintf("%2dd ago", int(math.Round(s/(60*60*24))))
+}
+
+func removeRelativeTimeString(s string) (string, error) {
+	start := strings.Index(s, "]")
+	if start < 0 {
+		return "", errors.New("missing relative time from selection")
+	}
+
+	return s[start+1:], nil
 }
