@@ -160,12 +160,14 @@ func (x *X) GetSelection(ev xproto.SelectionNotifyEvent) ([]uint8, history.ClipF
 
 		// We have an Incr type, delete the property to fire off the incremental write.
 		err = xproto.DeletePropertyChecked(x.conn, ev.Requestor, x.atoms.selectionProperty).Check()
-
 		if err != nil {
 			return nil, history.NoneFormat, fmt.Errorf("failed to launch INCR read: %w", err)
 		}
 
-		x.selectInput(ev.Requestor, xproto.EventMaskPropertyChange)
+		err = x.selectInput(ev.Requestor, xproto.EventMaskPropertyChange)
+		if err != nil {
+			return nil, history.NoneFormat, fmt.Errorf("failed to select input: %w", err)
+		}
 
 		cont := incr{
 			data:      make([]byte, 0, unpackInt(reply.Value)),
@@ -246,8 +248,8 @@ func (x *X) ContinueGetSelection(ev xproto.PropertyNotifyEvent) ([]byte, history
 	if len(reply.Value) == 0 {
 		// we have finished handling this INCR, clean up
 		delete(x.rincrs, ev.Window)
-		x.selectInput(ev.Window, xproto.EventMaskNoEvent)
-		return cont.data, x.atomToFormat(cont.target), nil
+		err = x.selectInput(ev.Window, xproto.EventMaskNoEvent)
+		return cont.data, x.atomToFormat(cont.target), err
 	} else {
 		cont.data = append(cont.data, reply.Value...)
 	}

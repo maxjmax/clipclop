@@ -4,49 +4,11 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 
 ## Next
 
-- TODO configurable min-length for clips, to remove anything of 1-3 characters?
-
 - TODO handle C-c nicely, signal.NotifyContext
 
+- TODO vim selection no longer sycronising with system clipboard on my setup
+
 - TODO Add integration tests for png target
-
-- TODO support INCR reads for large images
-    https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html#incr_properties
-
-        Requestors may receive a property of type INCR [6] in response to any target that results in selection data.
-
-        This indicates that the owner will send the actual data incrementally. The contents of the INCR property will be an integer, which represents a lower bound on the number of bytes of data in the selection. The requestor and the selection owner transfer the data in the selection in the following manner.
-
-        The selection requestor starts the transfer process by deleting the (type==INCR) property forming the reply to the selection.
-
-        The selection owner then:
-
-        Appends the data in suitable-size chunks to the same property on the same window as the selection reply with a type corresponding to the actual type of the converted selection. The size should be less than the maximum-request-size in the connection handshake.
-
-        Waits between each append for a PropertyNotify (state==Deleted) event that shows that the requestor has read the data. The reason for doing this is to limit the consumption of space in the server.
-
-        Waits (after the entire data has been transferred to the server) until a PropertyNotify (state==Deleted) event that shows that the data has been read by the requestor and then writes zero-length data to the property.
-
-        The selection requestor:
-
-        Waits for the SelectionNotify event.
-
-        Loops:
-
-        Retrieving data using GetProperty with the delete argument True.
-
-        Waiting for a PropertyNotify with the state argument NewValue.
-
-        Waits until the property named by the PropertyNotify event is zero-length.
-
-        Deletes the zero-length property.
-
-        The type of the converted selection is the type of the first partial property. The remaining partial properties must have the same type.
-
-     see: https://github.com/kfish/xsel/blob/master/xsel.c#L1275 check that
-     looks straight forward actually. State is going to be annoying to handle.
-
-    setup.MaximumRequestLength * 4 bytes is the most we could set, which will be 256kB pretty much everywhere. Want to use INCR for things bigger than that.
 
 ## Image support
 
@@ -64,7 +26,6 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 
 ## Builds
 
-- TODO screenshot
 - TODO better readme with setup instructions
 - TODO automatic release builds
 - TODO submit to aur
