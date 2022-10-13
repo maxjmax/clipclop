@@ -15,12 +15,21 @@ import (
 	"time"
 )
 
+var opts = options{
+	Sock:        "/tmp/testing-sock.sock",
+	MinClipSize: 4,
+	Debug:       false,
+	HistorySize: 50,
+}
+
 func TestClipClopIntegration(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
-	go run(logger, "/tmp/testing-sock.sock", 50, false)
+	go run(logger, opts)
 
 	// in another thread, change the clipboard using xclip
 	clips := [][]string{
+		{"clipboard", "bla"},  // too short, will be discarded
+		{"clipboard", "blaa"}, // just long enough, will be included
 		{"primary", "hello world"},
 		{"clipboard", "wee %*21"},
 		{"primary", "awkrwere\nwrir rwerr jwer "},
@@ -31,6 +40,7 @@ func TestClipClopIntegration(t *testing.T) {
 			"[ 1s ago] awkrwere                                [+1 lines]",
 			"[ 1s ago] wee %*21                                          ",
 			"[ 1s ago] hello world                                       ",
+			"[ 1s ago] blaa                                              ",
 		}, "\n")
 
 	err := populateClips(clips)
@@ -89,7 +99,7 @@ func TestClipClopIntegration(t *testing.T) {
 
 func TestClipClopINCR(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
-	go run(logger, "/tmp/testing-sock.sock", 50, false)
+	go run(logger, opts)
 
 	clips := [][]string{{"primary", strings.Repeat("1234567890", 8*1024)}}
 	err := populateClips(clips)

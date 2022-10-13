@@ -40,23 +40,30 @@ For an example of how to use this with dmenu, see clip.sh in the clipclop repo.
 `)
 }
 
+type options struct {
+	Sock        string
+	HistorySize int
+	Debug       bool
+	MinClipSize int
+}
+
 func main() {
+	var opts options
 	flag.Usage = usage
-	var (
-		sock        = flag.String("socket", "/tmp/clipclop.sock", "location of the socket file")
-		historySize = flag.Int("n", 100, "Number of records to keep in history")
-		debug       = flag.Bool("v", false, "Print verbose debugging output")
-	)
+	flag.StringVar(&opts.Sock, "socket", "/tmp/clipclop.sock", "location of the socket file")
+	flag.IntVar(&opts.HistorySize, "n", 100, "Number of records to keep in history")
+	flag.BoolVar(&opts.Debug, "v", false, "Print verbose debugging output")
+	flag.IntVar(&opts.MinClipSize, "m", 4, "Min clip size. Smaller clips will be discarded.")
 	flag.Parse()
 	logger := log.New(os.Stdout, "", log.Lshortfile|log.Ldate|log.Ltime)
 
-	run(logger, *sock, *historySize, *debug)
+	run(logger, opts)
 }
 
-func run(logger *log.Logger, sock string, historySize int, debug bool) {
+func run(logger *log.Logger, opts options) {
 	var err error
 
-	hist := history.NewHistory(historySize)
+	hist := history.NewHistory(opts.HistorySize)
 	xconn, err := x.StartX()
 	if err != nil {
 		logger.Fatalf("Error starting X: %s", err)
@@ -68,11 +75,11 @@ func run(logger *log.Logger, sock string, historySize int, debug bool) {
 	}
 	logger.Print("Listening for X events")
 
-	go ipc.IPCServer(sock, logger, hist, xconn)
-	processEvents(logger, hist, xconn, debug)
+	go ipc.IPCServer(logger, hist, xconn, opts.Sock)
+	processEvents(logger, hist, xconn, opts)
 }
 
-func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, debug bool) {
+func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, opts options) {
 	for {
 		ev, xerr := xconn.NextEvent()
 		if ev == nil && xerr == nil {
@@ -87,7 +94,7 @@ func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, debug 
 			continue
 		}
 
-		if debug {
+		if opts.Debug {
 			logger.Println(xconn.DumpEvent(&ev))
 		}
 
@@ -103,7 +110,7 @@ func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, debug 
 			if err != nil {
 				logger.Printf("Failed to get selection: %s", err)
 			}
-			if data != nil {
+			if data != nil && len(data) >= opts.MinClipSize {
 				// We got a selection
 				hist.Append(history.Clip{Created: time.Now(), Value: data, Format: format, Source: "unknown"})
 			}

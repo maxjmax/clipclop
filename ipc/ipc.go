@@ -11,7 +11,7 @@ import (
 	"github.com/maxjmax/clipclop/x"
 )
 
-func IPCServer(sock string, logger *log.Logger, hist *history.History, xconn *x.X) {
+func IPCServer(logger *log.Logger, hist *history.History, xconn *x.X, sock string) {
 	if err := os.RemoveAll(sock); err != nil {
 		logger.Fatalf("could not remove IPC socket file %s", sock)
 	}

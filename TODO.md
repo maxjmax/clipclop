@@ -4,6 +4,8 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 
 ## Next
 
+- TODO configurable min-length for clips, to remove anything of 1-3 characters?
+
 - TODO handle C-c nicely, signal.NotifyContext
 
 - TODO Add integration tests for png target
