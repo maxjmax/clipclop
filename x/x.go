@@ -1,13 +1,35 @@
+// The ugly part.
 package x
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/BurntSushi/xgb"
 	"github.com/BurntSushi/xgb/xfixes"
 	"github.com/BurntSushi/xgb/xproto"
 	"github.com/maxjmax/clipclop/history"
 )
+
+// TODO: remove history.ClipFormat from here, convert from atoms outside of this package.
+
+type incr struct {
+	data      []byte // data we are sending
+	i         int    // index to write next
+	seq       uint16
+	selection xproto.Atom
+	target    xproto.Atom
+	property  xproto.Atom
+}
+
+type X struct {
+	conn        *xgb.Conn
+	window      xproto.Window
+	screen      *xproto.ScreenInfo
+	atoms       atoms
+	incrs       map[xproto.Window]*incr
+	maxPropSize int // maximum number of bytes for a property
+}
 
 type atoms struct {
 	selectionProperty xproto.Atom
@@ -16,13 +38,6 @@ type atoms struct {
 	incr              xproto.Atom
 	png               xproto.Atom
 	utf8              xproto.Atom
-}
-
-type X struct {
-	conn   *xgb.Conn
-	window *xproto.Window
-	screen *xproto.ScreenInfo
-	atoms  atoms
 }
 
 func StartX() (*X, error) {
@@ -45,7 +60,6 @@ func StartX() (*X, error) {
 		return nil, fmt.Errorf("could not negotiate xfixes version: %w", err)
 	}
 
-	// TODO: eh, not pretty, don't want to use a map
 	atoms := atoms{
 		selectionProperty: createAtom(conn, "CLIPCLOP_SEL"),
 		clipboard:         createAtom(conn, "CLIPBOARD"),
@@ -64,9 +78,11 @@ func StartX() (*X, error) {
 	}
 
 	return &X{
-		conn:   conn,
-		screen: screen,
-		atoms:  atoms,
+		conn:        conn,
+		screen:      screen,
+		atoms:       atoms,
+		maxPropSize: int(setup.MaximumRequestLength), // quarter of the max size in bytes
+		incrs:       make(map[xproto.Window]*incr),
 	}, nil
 }
 
@@ -85,9 +101,6 @@ func (x *X) CreateEventWindow() error {
 		return fmt.Errorf("could not create event window : %w", err)
 	}
 
-	// We can still handle events without mapping (showing) the window
-	// xproto.MapWindowChecked(X, wid).Check()
-
 	// Request events to it when the selection changes
 	var mask uint32 = xfixes.SelectionEventMaskSetSelectionOwner
 	if err = xfixes.SelectSelectionInputChecked(x.conn, wid, xproto.AtomPrimary, mask).Check(); err != nil {
@@ -98,8 +111,12 @@ func (x *X) CreateEventWindow() error {
 		return fmt.Errorf("could not select clipboard selection events: %w", err)
 	}
 
-	x.window = &wid
+	x.window = wid
 	return nil
+}
+
+func (x *X) IsEventWindow(window xproto.Window) bool {
+	return x.window == window
 }
 
 func (x *X) NextEvent() (xgb.Event, xgb.Error) {
@@ -107,15 +124,14 @@ func (x *X) NextEvent() (xgb.Event, xgb.Error) {
 }
 
 func (x *X) ConvertSelection(ev xfixes.SelectionNotifyEvent) error {
-	if ev.Owner == *x.window {
-		return nil // that was us
+	if x.IsEventWindow(ev.Owner) {
+		return nil
 	}
 
 	return xproto.ConvertSelectionChecked(
 		x.conn, ev.Window, ev.Selection, x.atoms.targets, x.atoms.targets, ev.SelectionTimestamp).Check()
 }
 
-// TODO: shouldn't be using history formats here?
 func (x *X) GetSelection(ev xproto.SelectionNotifyEvent) ([]uint8, history.ClipFormat, error) {
 	if ev.Property == x.atoms.targets {
 		target, err := x.chooseTarget(ev)
@@ -138,43 +154,37 @@ func (x *X) GetSelection(ev xproto.SelectionNotifyEvent) ([]uint8, history.ClipF
 	return nil, history.NoneFormat, nil
 }
 
-func (x *X) chooseTarget(ev xproto.SelectionNotifyEvent) (xproto.Atom, error) {
-	reply, err := xproto.GetProperty(x.conn, true, ev.Requestor, x.atoms.targets, xproto.AtomAtom, 0, (1<<32)-1).Reply()
-	if err != nil {
-		return xproto.AtomNone, err
-	}
-
-	// 32bits per atom, look for our preferred atom type and return it.
-	// Adapted from xgbutil/xprop code
-	atoms := reply.Value
-	for i := 0; len(atoms) >= 4; i++ {
-		atom := xproto.Atom(xgb.Get32(atoms))
-		if atom == x.atoms.png || atom == x.atoms.utf8 {
-			return atom, nil
-		}
-		atoms = atoms[4:]
-	}
-	// If we find neither image nor utf8, we default to the string target
-	return xproto.AtomString, nil
-}
-
 func (x *X) SetSelection(ev xproto.SelectionRequestEvent, data *[]uint8, format history.ClipFormat) error {
-
-	// TODO: if too big, we need to set the type of the property to INCR and set the value to the number of bytes total.
-	// then we need to go back to the loop, -- which means we probably need to have some global state (well, in X) corresponding to
-	// the thing currently being sent.
+	replaceProperty := func(typ xproto.Atom, format byte, len uint32, data []byte) error {
+		return xproto.ChangePropertyChecked(
+			x.conn, xproto.PropModeReplace, ev.Requestor, ev.Property,
+			typ, format, len, data,
+		).Check()
+	}
 
 	var err error
+	dataLen := uint32(len(*data))
 	if ev.Target == x.atoms.targets {
-		data := make([]byte, 8)
-		xgb.Put32(data, uint32(x.formatToAtom(format)))
-		xgb.Put32(data[4:], uint32(x.atoms.targets))
-		err = xproto.ChangePropertyChecked(x.conn, xproto.PropModeReplace, ev.Requestor, ev.Property, xproto.AtomAtom, 32, 2, data).Check()
-	} else {
+		err = replaceProperty(xproto.AtomAtom, 32, 2, packInts(uint32(x.formatToAtom(format)), uint32(x.atoms.targets)))
+	} else if int(dataLen) < x.maxPropSize {
 		// target := x.formatToAtom(currentClip.format)
-		target := ev.Target
-		data := []byte(*data)
-		err = xproto.ChangePropertyChecked(x.conn, xproto.PropModeReplace, ev.Requestor, ev.Property, target, 8, uint32(len(data)), data).Check()
+		err = replaceProperty(ev.Target, 8, dataLen, []byte(*data))
+	} else {
+		// Need to use INCR
+		err = replaceProperty(x.atoms.incr, 32, 1, packInts(dataLen))
+		if err != nil {
+			return err
+		}
+		err = x.selectInput(ev.Requestor, xproto.EventMaskPropertyChange)
+
+		x.incrs[ev.Requestor] = &incr{
+			data:      []byte(*data),
+			i:         0,
+			seq:       ev.Sequence,
+			target:    ev.Target,
+			property:  ev.Property,
+			selection: ev.Selection,
+		}
 	}
 
 	if err != nil {
@@ -182,23 +192,109 @@ func (x *X) SetSelection(ev xproto.SelectionRequestEvent, data *[]uint8, format 
 	}
 
 	notifyEvent := xproto.SelectionNotifyEvent{
-		Sequence:  ev.Sequence + 1,
-		Time:      ev.Time,
+		Sequence:  ev.Sequence,
+		Time:      xproto.TimeCurrentTime,
 		Requestor: ev.Requestor,
 		Selection: ev.Selection,
 		Target:    ev.Target, // TARGETS or whatever they requested
 		Property:  ev.Property,
 	}
-	// return xproto.SendEventChecked(X, false, ev.Requestor, xproto.SelectionNotify, string(notifyEvent.Bytes())).Check()
+
 	return xproto.SendEventChecked(x.conn, false, ev.Requestor, xproto.EventMaskNoEvent, string(notifyEvent.Bytes())).Check()
 }
 
+func (x *X) ContinueSetSelection(ev xproto.PropertyNotifyEvent) error {
+	cont, ok := x.incrs[ev.Window]
+	if !ok {
+		return fmt.Errorf("could not find INCR to continue: %v", ev)
+	}
+
+	if cont.i < 0 {
+		// we have finished handling this INCR, clean up
+		delete(x.incrs, ev.Window)
+
+		// Stop listening to events on this window
+		return x.selectInput(ev.Window, xproto.EventMaskNoEvent)
+	}
+
+	remaining := len(cont.data) - cont.i
+	dataLen := remaining
+	if remaining > x.maxPropSize {
+		dataLen = x.maxPropSize
+	}
+
+	// First write is a replace, then all subsequent ones including the final 0-len one are appends
+	mode := xproto.PropModeAppend
+	if cont.i == 0 {
+		mode = xproto.PropModeReplace
+	}
+
+	err := xproto.ChangePropertyChecked(
+		x.conn, byte(mode), ev.Window, cont.property, cont.target,
+		8, uint32(dataLen), cont.data[cont.i:cont.i+dataLen],
+	).Check()
+	if err != nil {
+		return fmt.Errorf("could not write property during INCR: %w", err)
+	}
+
+	if remaining == 0 {
+		// that was the last chunk, stop handling this INCR -- next pass through we will delete it
+		cont.i = -1
+	} else {
+		cont.i += dataLen
+	}
+
+	return nil
+}
+
 func (x *X) BecomeSelectionOwner() error {
-	err := xproto.SetSelectionOwnerChecked(x.conn, *x.window, xproto.AtomPrimary, xproto.TimeCurrentTime).Check()
+	err := xproto.SetSelectionOwnerChecked(x.conn, x.window, xproto.AtomPrimary, xproto.TimeCurrentTime).Check()
 	if err != nil {
 		return err
 	}
-	return xproto.SetSelectionOwnerChecked(x.conn, *x.window, x.atoms.clipboard, xproto.TimeCurrentTime).Check()
+	return xproto.SetSelectionOwnerChecked(x.conn, x.window, x.atoms.clipboard, xproto.TimeCurrentTime).Check()
+}
+
+func (x *X) DumpEvent(event *xgb.Event) string {
+	v := reflect.ValueOf(*event)
+	o := fmt.Sprintf("%s\t", reflect.TypeOf(*event))
+
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		name := v.Type().Field(i).Name
+		switch name {
+		case "Time":
+			continue
+		case "State":
+			state := field.Interface().(uint8)
+			v := "NEWVAL"
+			if state == xproto.PropertyDelete {
+				v = "DELETE"
+			}
+			o += fmt.Sprintf(" %s=%s", name, v)
+		case "Selection", "Property", "Target":
+			atomName := x.getAtomName(field.Interface().(xproto.Atom))
+			o += fmt.Sprintf(" %s=%s", name, atomName)
+		default:
+			o += fmt.Sprintf(" %s=%v", name, field.Interface())
+		}
+	}
+
+	return o
+}
+
+func (x *X) selectInput(window xproto.Window, mask uint32) error {
+	return xproto.ChangeWindowAttributesChecked(
+		x.conn, window, xproto.CwEventMask, []uint32{mask},
+	).Check()
+}
+
+func (x *X) getAtomName(atom xproto.Atom) string {
+	r, err := xproto.GetAtomName(x.conn, atom).Reply()
+	if err != nil {
+		return fmt.Sprintf("ERR: %s", err)
+	}
+	return r.Name
 }
 
 func (x *X) atomToFormat(atom xproto.Atom) history.ClipFormat {
@@ -224,4 +320,32 @@ func createAtom(X *xgb.Conn, n string) xproto.Atom {
 		return xproto.AtomNone
 	}
 	return reply.Atom
+}
+
+func packInts(ints ...uint32) []byte {
+	data := make([]byte, len(ints)*4)
+	for i := 0; i < len(ints); i++ {
+		xgb.Put32(data[(i*4):], ints[i])
+	}
+	return data
+}
+
+func (x *X) chooseTarget(ev xproto.SelectionNotifyEvent) (xproto.Atom, error) {
+	reply, err := xproto.GetProperty(x.conn, true, ev.Requestor, x.atoms.targets, xproto.AtomAtom, 0, (1<<32)-1).Reply()
+	if err != nil {
+		return xproto.AtomNone, err
+	}
+
+	// 32bits per atom, look for our preferred atom type and return it.
+	// Adapted from xgbutil/xprop code
+	atoms := reply.Value
+	for i := 0; len(atoms) >= 4; i++ {
+		atom := xproto.Atom(xgb.Get32(atoms))
+		if atom == x.atoms.png || atom == x.atoms.utf8 {
+			return atom, nil
+		}
+		atoms = atoms[4:]
+	}
+	// If we find neither image nor utf8, we default to the string target
+	return xproto.AtomString, nil
 }

@@ -41,19 +41,19 @@ For an example of how to use this with dmenu, see clip.sh in the clipclop repo.
 }
 
 func main() {
-	var sock string
-	var historySize int
-
 	flag.Usage = usage
-	flag.StringVar(&sock, "socket", "/tmp/clipclop.sock", "location of the socket file")
-	flag.IntVar(&historySize, "n", 100, "Number of records to keep in history")
+	var (
+		sock        = flag.String("socket", "/tmp/clipclop.sock", "location of the socket file")
+		historySize = flag.Int("n", 100, "Number of records to keep in history")
+		debug       = flag.Bool("v", false, "Print verbose debugging output")
+	)
 	flag.Parse()
 	logger := log.New(os.Stdout, "", log.Lshortfile|log.Ldate|log.Ltime)
 
-	run(logger, sock, historySize)
+	run(logger, *sock, *historySize, *debug)
 }
 
-func run(logger *log.Logger, sock string, historySize int) {
+func run(logger *log.Logger, sock string, historySize int, debug bool) {
 	var err error
 
 	hist := history.NewHistory(historySize)
@@ -69,10 +69,10 @@ func run(logger *log.Logger, sock string, historySize int) {
 	logger.Print("Listening for X events")
 
 	go ipc.IPCServer(sock, logger, hist, xconn)
-	processEvents(logger, hist, xconn)
+	processEvents(logger, hist, xconn, debug)
 }
 
-func processEvents(logger *log.Logger, hist *history.History, xconn *x.X) {
+func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, debug bool) {
 	for {
 		ev, xerr := xconn.NextEvent()
 		if ev == nil && xerr == nil {
@@ -85,6 +85,10 @@ func processEvents(logger *log.Logger, hist *history.History, xconn *x.X) {
 		}
 		if ev == nil {
 			continue
+		}
+
+		if debug {
+			logger.Println(xconn.DumpEvent(&ev))
 		}
 
 		switch ev := ev.(type) {
@@ -107,6 +111,7 @@ func processEvents(logger *log.Logger, hist *history.History, xconn *x.X) {
 		case xproto.SelectionRequestEvent:
 			// Let the requestor know what target is available for the current clip
 			selectedClip := hist.GetSelected()
+
 			if selectedClip == nil {
 				logger.Print("Nothing in history to share")
 			} else {
@@ -118,10 +123,18 @@ func processEvents(logger *log.Logger, hist *history.History, xconn *x.X) {
 		case xproto.SelectionClearEvent:
 			// Something else has taken ownership
 
+		case xproto.PropertyNotifyEvent:
+			// During INCR, we listen for DELETEs
+			if !xconn.IsEventWindow(ev.Window) && ev.State == xproto.PropertyDelete {
+				err := xconn.ContinueSetSelection(ev)
+				if err != nil {
+					logger.Printf("error during INCR set selection: %s", err)
+				}
+			}
+
 		default:
 			logger.Printf("Unknown Event: %s\n", ev)
 		}
 		// TODO: if fmtid is INCRID then we need extra logic for that
-
 	}
 }

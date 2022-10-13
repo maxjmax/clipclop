@@ -17,9 +17,9 @@ import (
 
 func TestClipClopIntegration(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
-	go run(logger, "/tmp/testing-sock.sock", 50)
+	go run(logger, "/tmp/testing-sock.sock", 50, false)
 
-	// in another thread, change the clipboard using xsel
+	// in another thread, change the clipboard using xclip
 	clips := [][]string{
 		{"primary", "hello world"},
 		{"clipboard", "wee %*21"},
@@ -74,7 +74,7 @@ func TestClipClopIntegration(t *testing.T) {
 		// if we select the first line, it should return the 50th clip (since they are in reverse order)
 		out, err = sendCommandToSocket(fmt.Sprintf("SEL %s\n", line))
 		if err != nil || out != "OK" {
-			t.Fatalf("Could not set clip: %s, %s", out, err)
+			t.Fatalf("Could not set clip %s: %s, err: %s", line, out, err)
 		}
 
 		fullClip, err := getSelWithXclip()
@@ -87,7 +87,39 @@ func TestClipClopIntegration(t *testing.T) {
 	}
 }
 
-// TODO: integration test for images INCR
+func TestClipClopINCR(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	go run(logger, "/tmp/testing-sock.sock", 50, false)
+
+	clips := [][]string{{"primary", strings.Repeat("1234567890", 8*1024)}}
+	err := populateClips(clips)
+	if err != nil {
+		t.Fatalf("could not populate clipboard history: %s", err)
+	}
+
+	out, err := sendCommandToSocket("GET\n")
+	lines := strings.Split(out, "\n")
+	if len(lines) != 1 {
+		t.Fatalf("Should have 1 entry but got %d", len(lines))
+	}
+
+	// TODO: SOMETIMES fails, presumably when it tries to use INCR to set the property, which we don't support.
+	// TODO: setting to 200kB seems to cause it to always fail, indeed.
+	out, err = sendCommandToSocket(fmt.Sprintf("SEL %s\n", lines[0]))
+	if err != nil || out != "OK" {
+		t.Fatalf("Could not set clip: %s, %s", out, err)
+	}
+
+	fullClip, err := getSelWithXclip()
+	if err != nil {
+		t.Fatalf("Could not get selection")
+	}
+	if fullClip != clips[0][1] {
+		// Max prop size is probably set to ~63kB
+		// (we chunk it above 1/4 of the max size, which would be that many int32s)
+		t.Fatalf("Did not get full 80kB clip back, only got %dkB", len(fullClip)/1024)
+	}
+}
 
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\n~012345^\t更多É😊     ")
 
@@ -107,7 +139,7 @@ func populateClips(clips [][]string) error {
 		}
 	}
 
-	time.Sleep(1 * time.Second) // TODO: eeeeh..find a better way. need to wait for the xevents to trickle through
+	time.Sleep(500 * time.Millisecond) // TODO: eeeeh..find a better way. need to wait for the xevents to trickle through
 	return nil
 }
 

@@ -4,9 +4,11 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 
 ## Next
 
-- TODO Pasting an image of ~490kB into an email gives this error:
-    `clipclop[2243040]: 2022/10/03 08:55:19 main.go:113: Could not set selection for requestor: BadLength {NiceName: Length, Sequence: 106, BadValue: 8388608, MinorOpcode: 0, MajorOpcode: 18}`
-    Guessing too large to do in one go? Need to support INCR?
+- TODO handle C-c nicely, signal.NotifyContext
+
+- TODO Add integration tests for png target
+
+- TODO support INCR reads for large images
     https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html#incr_properties
 
         Requestors may receive a property of type INCR [6] in response to any target that results in selection data.
@@ -52,8 +54,6 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
         - prefix with an index 01 [5s ago] Blah blah blah
     This would be easier if dmenu could report the index of the chosen item, but it doesn't do that without a patch.
 
-- TODO Pasting images into google keep results in an error (complaining about size/format).
-
 - TODO image blob stored in file if large? same for large text clips?
 
 ## HTML/Rich text support
@@ -63,11 +63,8 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 ## Builds
 
 - TODO screenshot
-- TODO integration testing, somehow -- would be good to fuzz with random clips then select n'th, check we get full content back, etc.
-    could use xclip perhaps to simulate setting clipboard, + xsel to check contents is set correctly
 - TODO better readme with setup instructions
 - TODO automatic release builds
-- TODO: also run go vet, https://staticcheck.io/docs/running-staticcheck/ci/github-actions/ etc. on push.
 - TODO submit to aur
 
 # Later
@@ -77,7 +74,6 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 Probably bugs here
 
 - strings are truncated to the wrong length with multicharacter runes
-- strings might be truncated in the middle of a rune
 
 ## Persistence
 

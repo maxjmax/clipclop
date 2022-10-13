@@ -64,7 +64,6 @@ func handleCommand(cmd string, hist *history.History, xconn *x.X) string {
 	}
 	switch cmd[:3] {
 	case "GET":
-		// TODO: pass history to method
 		return strings.Join(hist.Format(history.HistoryFormatter), "\n") + "\n"
 	case "SEL":
 		clip, err := hist.FindEntry(cmd[3:])
