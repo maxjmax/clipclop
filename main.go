@@ -131,17 +131,24 @@ func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, opts o
 			// Something else has taken ownership
 
 		case xproto.PropertyNotifyEvent:
-			// During INCR, we listen for DELETEs
-			if !xconn.IsEventWindow(ev.Window) && ev.State == xproto.PropertyDelete {
+			// TODO: many errors in console during INCR, not stopping listening correctly?
+			if ev.State == xproto.PropertyDelete {
 				err := xconn.ContinueSetSelection(ev)
 				if err != nil {
 					logger.Printf("error during INCR set selection: %s", err)
+				}
+			} else {
+				data, format, err := xconn.ContinueGetSelection(ev)
+				if err != nil {
+					logger.Printf("error during INCR get selection: %s", err)
+				} else if data != nil {
+					// the INCR is complete
+					hist.Append(history.Clip{Created: time.Now(), Value: data, Format: format})
 				}
 			}
 
 		default:
 			logger.Printf("Unknown Event: %s\n", ev)
 		}
-		// TODO: if fmtid is INCRID then we need extra logic for that
 	}
 }

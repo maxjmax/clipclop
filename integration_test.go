@@ -101,7 +101,14 @@ func TestClipClopINCR(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
 	go run(logger, opts)
 
-	clips := [][]string{{"primary", strings.Repeat("1234567890", 8*1024)}}
+	time.Sleep(1 * time.Second)
+
+	// TODO: ??? seems to work in browser with a big image (10MB)
+	// TODO: problem with our xclip call?
+	// TODO: we're only getting 1MB back, so assume we're not writing the whole 2MB
+	// TODO: any bigger than 100 and it starts to use INCR and it stops working, but it _does_ work
+	// aaah
+	clips := [][]string{{"primary", strings.Repeat("1234567890", 100*1024)}}
 	err := populateClips(clips)
 	if err != nil {
 		t.Fatalf("could not populate clipboard history: %s", err)
@@ -113,8 +120,6 @@ func TestClipClopINCR(t *testing.T) {
 		t.Fatalf("Should have 1 entry but got %d", len(lines))
 	}
 
-	// TODO: SOMETIMES fails, presumably when it tries to use INCR to set the property, which we don't support.
-	// TODO: setting to 200kB seems to cause it to always fail, indeed.
 	out, err = sendCommandToSocket(fmt.Sprintf("SEL %s\n", lines[0]))
 	if err != nil || out != "OK" {
 		t.Fatalf("Could not set clip: %s, %s", out, err)
@@ -127,7 +132,7 @@ func TestClipClopINCR(t *testing.T) {
 	if fullClip != clips[0][1] {
 		// Max prop size is probably set to ~63kB
 		// (we chunk it above 1/4 of the max size, which would be that many int32s)
-		t.Fatalf("Did not get full 80kB clip back, only got %dkB", len(fullClip)/1024)
+		t.Fatalf("Did not get full 2MB clip back, only got %dkB", len(fullClip)/1024)
 	}
 }
 
@@ -149,7 +154,7 @@ func populateClips(clips [][]string) error {
 		}
 	}
 
-	time.Sleep(500 * time.Millisecond) // TODO: eeeeh..find a better way. need to wait for the xevents to trickle through
+	time.Sleep(1 * time.Second) // TODO: eeeeh..find a better way. need to wait for the xevents to trickle through
 	return nil
 }
 
@@ -171,6 +176,11 @@ func sendCommandToSocket(cmd string) (string, error) {
 }
 
 func setSelWithXclip(val string, sel string) error {
+	// Seems to struggle over 1MB?
+	// But we won't use INCR until ~1.7MB?
+	// Which makes the test useless.
+	// Not certain it's xclip's fault yet
+	// https://github.com/astrand/xclip/commit/4601354aff7d4bb62c3340c38ea66d61020be913 ???
 	cmd := exec.Command("xclip", "-i", "-selection", sel)
 
 	stdin, err := cmd.StdinPipe()

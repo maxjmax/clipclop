@@ -2,6 +2,7 @@
 package x
 
 import (
+	"encoding/binary"
 	"fmt"
 	"reflect"
 
@@ -12,6 +13,8 @@ import (
 )
 
 // TODO: remove history.ClipFormat from here, convert from atoms outside of this package.
+
+const AnyProperyType xproto.Atom = 0
 
 type incr struct {
 	data      []byte // data we are sending
@@ -27,7 +30,8 @@ type X struct {
 	window      xproto.Window
 	screen      *xproto.ScreenInfo
 	atoms       atoms
-	incrs       map[xproto.Window]*incr
+	wincrs      map[xproto.Window]*incr
+	rincrs      map[xproto.Window]*incr
 	maxPropSize int // maximum number of bytes for a property
 }
 
@@ -82,7 +86,8 @@ func StartX() (*X, error) {
 		screen:      screen,
 		atoms:       atoms,
 		maxPropSize: int(setup.MaximumRequestLength), // quarter of the max size in bytes
-		incrs:       make(map[xproto.Window]*incr),
+		wincrs:      make(map[xproto.Window]*incr),
+		rincrs:      make(map[xproto.Window]*incr),
 	}, nil
 }
 
@@ -115,7 +120,7 @@ func (x *X) CreateEventWindow() error {
 	return nil
 }
 
-func (x *X) IsEventWindow(window xproto.Window) bool {
+func (x *X) isEventWindow(window xproto.Window) bool {
 	return x.window == window
 }
 
@@ -124,7 +129,7 @@ func (x *X) NextEvent() (xgb.Event, xgb.Error) {
 }
 
 func (x *X) ConvertSelection(ev xfixes.SelectionNotifyEvent) error {
-	if x.IsEventWindow(ev.Owner) {
+	if x.isEventWindow(ev.Owner) {
 		return nil
 	}
 
@@ -134,6 +139,7 @@ func (x *X) ConvertSelection(ev xfixes.SelectionNotifyEvent) error {
 
 func (x *X) GetSelection(ev xproto.SelectionNotifyEvent) ([]uint8, history.ClipFormat, error) {
 	if ev.Property == x.atoms.targets {
+		// We had asked for targets, now choose the one we want and request the selection in that format.
 		target, err := x.chooseTarget(ev)
 		if err != nil {
 			return nil, history.NoneFormat, fmt.Errorf("failed to choose target: %w", err)
@@ -143,14 +149,32 @@ func (x *X) GetSelection(ev xproto.SelectionNotifyEvent) ([]uint8, history.ClipF
 			return nil, history.NoneFormat, fmt.Errorf("error requesting selection convert to %d, %w", target, err)
 		}
 	} else {
-		reply, err := xproto.GetProperty(x.conn, true, ev.Requestor, x.atoms.selectionProperty, ev.Target, 0, (1<<32)-1).Reply()
+		// We have been given a selection, retrieve it.
+		reply, err := xproto.GetProperty(x.conn, true, ev.Requestor, x.atoms.selectionProperty, AnyProperyType, 0, (1<<32)-1).Reply()
 		if err != nil {
 			return nil, history.NoneFormat, fmt.Errorf("failed to get selection prop: %w", err)
-		} else if len(reply.Value) > 0 {
-			return reply.Value, x.atomToFormat(ev.Target), nil
 		}
+		if reply.Type != x.atoms.incr {
+			return reply.Value, x.atomToFormat(reply.Type), nil
+		}
+
+		// We have an Incr type, delete the property to fire off the incremental write.
+		err = xproto.DeletePropertyChecked(x.conn, ev.Requestor, x.atoms.selectionProperty).Check()
+
+		if err != nil {
+			return nil, history.NoneFormat, fmt.Errorf("failed to launch INCR read: %w", err)
+		}
+
+		x.selectInput(ev.Requestor, xproto.EventMaskPropertyChange)
+
+		cont := incr{
+			data:      make([]byte, 0, unpackInt(reply.Value)),
+			selection: ev.Selection,
+			target:    ev.Target,
+			property:  x.atoms.selectionProperty,
+		}
+		x.rincrs[ev.Requestor] = &cont
 	}
-	// Empty selection
 	return nil, history.NoneFormat, nil
 }
 
@@ -177,7 +201,7 @@ func (x *X) SetSelection(ev xproto.SelectionRequestEvent, data *[]uint8, format 
 		}
 		err = x.selectInput(ev.Requestor, xproto.EventMaskPropertyChange)
 
-		x.incrs[ev.Requestor] = &incr{
+		x.wincrs[ev.Requestor] = &incr{
 			data:      []byte(*data),
 			i:         0,
 			seq:       ev.Sequence,
@@ -203,17 +227,47 @@ func (x *X) SetSelection(ev xproto.SelectionRequestEvent, data *[]uint8, format 
 	return xproto.SendEventChecked(x.conn, false, ev.Requestor, xproto.EventMaskNoEvent, string(notifyEvent.Bytes())).Check()
 }
 
+func (x *X) ContinueGetSelection(ev xproto.PropertyNotifyEvent) ([]byte, history.ClipFormat, error) {
+	cont, ok := x.rincrs[ev.Window]
+	if !ok {
+		return nil, history.NoneFormat, fmt.Errorf("could not find INCR to continue: %v", ev)
+	}
+
+	reply, err := xproto.GetProperty(x.conn, true, ev.Window, cont.property, AnyProperyType, 0, (1<<32)-1).Reply()
+	if err != nil {
+		return nil, history.NoneFormat, fmt.Errorf("could not get property during incr: %w", err)
+	}
+
+	err = xproto.DeletePropertyChecked(x.conn, ev.Window, cont.property).Check()
+	if err != nil {
+		return nil, history.NoneFormat, fmt.Errorf("could not delete property during incr: %w", err)
+	}
+
+	if len(reply.Value) == 0 {
+		// we have finished handling this INCR, clean up
+		delete(x.rincrs, ev.Window)
+		x.selectInput(ev.Window, xproto.EventMaskNoEvent)
+		return cont.data, x.atomToFormat(cont.target), nil
+	} else {
+		cont.data = append(cont.data, reply.Value...)
+	}
+
+	return nil, history.NoneFormat, nil
+	// see getAppendProperty https://github.com/kfish/xsel/blob/master/xsel.c
+}
+
 func (x *X) ContinueSetSelection(ev xproto.PropertyNotifyEvent) error {
-	cont, ok := x.incrs[ev.Window]
+	if x.isEventWindow(ev.Window) {
+		return nil
+	}
+	cont, ok := x.wincrs[ev.Window]
 	if !ok {
 		return fmt.Errorf("could not find INCR to continue: %v", ev)
 	}
 
 	if cont.i < 0 {
 		// we have finished handling this INCR, clean up
-		delete(x.incrs, ev.Window)
-
-		// Stop listening to events on this window
+		delete(x.wincrs, ev.Window)
 		return x.selectInput(ev.Window, xproto.EventMaskNoEvent)
 	}
 
@@ -328,6 +382,13 @@ func packInts(ints ...uint32) []byte {
 		xgb.Put32(data[(i*4):], ints[i])
 	}
 	return data
+}
+
+func unpackInt(packed []byte) uint32 {
+	if len(packed) < 4 {
+		return 0
+	}
+	return binary.BigEndian.Uint32(packed[0:4])
 }
 
 func (x *X) chooseTarget(ev xproto.SelectionNotifyEvent) (xproto.Atom, error) {
