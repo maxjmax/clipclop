@@ -1,6 +1,7 @@
 package ipc
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -11,7 +12,7 @@ import (
 	"github.com/maxjmax/clipclop/x"
 )
 
-func IPCServer(logger *log.Logger, hist *history.History, xconn *x.X, sock string) {
+func IPCServer(ctx context.Context, logger *log.Logger, hist *history.History, xconn *x.X, sock string) {
 	if err := os.RemoveAll(sock); err != nil {
 		logger.Fatalf("could not remove IPC socket file %s", sock)
 	}
@@ -23,10 +24,18 @@ func IPCServer(logger *log.Logger, hist *history.History, xconn *x.X, sock strin
 	defer listener.Close()
 	logger.Printf("Listening on socket %s", sock)
 
+	go func() {
+		// TODO: Not 100% sure this is the best way of doing this. Same in main's event loop.
+		<-ctx.Done()
+		logger.Print("Shutting down")
+		listener.Close()
+	}()
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			logger.Fatal("could not accept connection ", err)
+			logger.Print("could not accept connection ", err)
+			return
 		}
 
 		err = handleConnection(conn, hist, xconn)

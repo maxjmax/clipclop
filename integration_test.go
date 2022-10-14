@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -24,7 +25,11 @@ var opts = options{
 
 func TestClipClopIntegration(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
-	go run(logger, opts)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // cleanup when test is done
+
+	go run(ctx, logger, opts)
 
 	// in another thread, change the clipboard using xclip
 	clips := [][]string{
@@ -98,8 +103,12 @@ func TestClipClopIntegration(t *testing.T) {
 }
 
 func TestClipClopINCR(t *testing.T) {
+	// TODO: I think the previous test is now affecting this one. Need to stop them properly between tests?
 	logger := log.New(io.Discard, "", 0)
-	go run(logger, opts)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // cleanup when test is done
+
+	go run(ctx, logger, opts)
 
 	time.Sleep(1 * time.Second)
 

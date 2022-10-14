@@ -128,6 +128,10 @@ func (x *X) NextEvent() (xgb.Event, xgb.Error) {
 	return x.conn.WaitForEvent()
 }
 
+func (x *X) Close() {
+	x.conn.Close()
+}
+
 func (x *X) ConvertSelection(ev xfixes.SelectionNotifyEvent) error {
 	if x.isEventWindow(ev.Owner) {
 		return nil

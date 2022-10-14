@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"time"
 
 	"github.com/BurntSushi/xgb/xfixes"
@@ -57,12 +59,14 @@ func main() {
 	flag.Parse()
 	logger := log.New(os.Stdout, "", log.Lshortfile|log.Ldate|log.Ltime)
 
-	run(logger, opts)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	run(ctx, logger, opts)
 }
 
-func run(logger *log.Logger, opts options) {
+func run(ctx context.Context, logger *log.Logger, opts options) {
 	var err error
-
 	hist := history.NewHistory(opts.HistorySize)
 	xconn, err := x.StartX()
 	if err != nil {
@@ -75,11 +79,11 @@ func run(logger *log.Logger, opts options) {
 	}
 	logger.Print("Listening for X events")
 
-	go ipc.IPCServer(logger, hist, xconn, opts.Sock)
-	processEvents(logger, hist, xconn, opts)
+	go ipc.IPCServer(ctx, logger, hist, xconn, opts.Sock)
+	processEvents(ctx, logger, hist, xconn, opts)
 }
 
-func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, opts options) {
+func processEvents(ctx context.Context, logger *log.Logger, hist *history.History, xconn *x.X, opts options) {
 	captureClip := func(data []byte, format history.ClipFormat) {
 		hist.Append(history.Clip{Created: time.Now(), Value: data, Format: format, Source: "unknown"})
 
@@ -91,10 +95,16 @@ func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, opts o
 		}
 	}
 
+	go func() {
+		<-ctx.Done()
+		logger.Print("Shutting down")
+		xconn.Close()
+	}()
+
 	for {
 		ev, xerr := xconn.NextEvent()
 		if ev == nil && xerr == nil {
-			logger.Fatal("Wait for event failed")
+			// shutting down
 			return
 		}
 		if xerr != nil {

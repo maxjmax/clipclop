@@ -4,8 +4,6 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 
 ## Next
 
-- TODO handle C-c nicely, signal.NotifyContext
-
 - TODO Add integration tests for png target
 
 ## Image support
