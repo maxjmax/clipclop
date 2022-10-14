@@ -6,8 +6,6 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 
 - TODO handle C-c nicely, signal.NotifyContext
 
-- TODO vim selection no longer sycronising with system clipboard on my setup
-
 - TODO Add integration tests for png target
 
 ## Image support

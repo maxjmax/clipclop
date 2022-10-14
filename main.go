@@ -80,6 +80,17 @@ func run(logger *log.Logger, opts options) {
 }
 
 func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, opts options) {
+	captureClip := func(data []byte, format history.ClipFormat) {
+		hist.Append(history.Clip{Created: time.Now(), Value: data, Format: format, Source: "unknown"})
+
+		// Take the selection so that if someone pastes now, the data comes from us. This avoid the case of someone
+		// copying from vim, closing vim, then trying to paste it elsewhere.
+		err := xconn.BecomeSelectionOwner()
+		if err != nil {
+			logger.Printf("Failed to become selection owner after capturing clip: %s", err)
+		}
+	}
+
 	for {
 		ev, xerr := xconn.NextEvent()
 		if ev == nil && xerr == nil {
@@ -111,8 +122,7 @@ func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, opts o
 				logger.Printf("Failed to get selection: %s", err)
 			}
 			if data != nil && len(data) >= opts.MinClipSize {
-				// We got a selection
-				hist.Append(history.Clip{Created: time.Now(), Value: data, Format: format, Source: "unknown"})
+				captureClip(data, format)
 			}
 
 		case xproto.SelectionRequestEvent:
@@ -143,7 +153,7 @@ func processEvents(logger *log.Logger, hist *history.History, xconn *x.X, opts o
 					logger.Printf("error during INCR get selection: %s", err)
 				} else if data != nil {
 					// the INCR is complete
-					hist.Append(history.Clip{Created: time.Now(), Value: data, Format: format})
+					captureClip(data, format)
 				}
 			}
 
