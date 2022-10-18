@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/BurntSushi/xgb"
 	"github.com/BurntSushi/xgb/xfixes"
 	"github.com/BurntSushi/xgb/xproto"
 	"github.com/maxjmax/clipclop/history"
@@ -84,17 +85,6 @@ func run(ctx context.Context, logger *log.Logger, opts options) {
 }
 
 func processEvents(ctx context.Context, logger *log.Logger, hist *history.History, xconn *x.X, opts options) {
-	captureClip := func(data []byte, format history.ClipFormat) {
-		hist.Append(history.Clip{Created: time.Now(), Value: data, Format: format, Source: "unknown"})
-
-		// Take the selection so that if someone pastes now, the data comes from us. This avoid the case of someone
-		// copying from vim, closing vim, then trying to paste it elsewhere.
-		err := xconn.BecomeSelectionOwner()
-		if err != nil {
-			logger.Printf("Failed to become selection owner after capturing clip: %s", err)
-		}
-	}
-
 	go func() {
 		<-ctx.Done()
 		logger.Print("Shutting down")
@@ -119,56 +109,74 @@ func processEvents(ctx context.Context, logger *log.Logger, hist *history.Histor
 			logger.Println(xconn.DumpEvent(&ev))
 		}
 
-		switch ev := ev.(type) {
-		case xfixes.SelectionNotifyEvent:
-			err := xconn.ConvertSelection(ev)
-			if err != nil {
-				logger.Printf("Failed to convert selection: %s", err)
-			}
+		handleEvent(ev, logger, hist, xconn, opts)
+	}
+}
 
-		case xproto.SelectionNotifyEvent:
-			data, format, err := xconn.GetSelection(ev)
+func handleEvent(ev xgb.Event, logger *log.Logger, hist *history.History, xconn *x.X, opts options) {
+	captureClip := func(data []byte, format history.ClipFormat) {
+		clip := history.Clip{Created: time.Now(), Value: data, Format: format, Source: "unknown"}
+		hist.Append(clip)
+
+		// Take the selection so that if someone pastes now, the data comes from us. This avoid the case of someone
+		// copying from vim, closing vim, then trying to paste it elsewhere.
+		err := xconn.BecomeSelectionOwner()
+
+		hist.SetSelected(&clip)
+		if err != nil {
+			logger.Printf("Failed to become selection owner after capturing clip: %s", err)
+		}
+	}
+
+	switch ev := ev.(type) {
+	case xfixes.SelectionNotifyEvent:
+		err := xconn.ConvertSelection(ev)
+		if err != nil {
+			logger.Printf("Failed to convert selection: %s", err)
+		}
+
+	case xproto.SelectionNotifyEvent:
+		data, format, err := xconn.GetSelection(ev)
+		if err != nil {
+			logger.Printf("Failed to get selection: %s", err)
+		}
+		if data != nil && len(data) >= opts.MinClipSize {
+			captureClip(data, format)
+		}
+
+	case xproto.SelectionRequestEvent:
+		// Let the requestor know what target is available for the current clip
+		selectedClip := hist.GetSelected()
+
+		if selectedClip == nil {
+			logger.Print("Nothing in history to share")
+		} else {
+			err := xconn.SetSelection(ev, &selectedClip.Value, selectedClip.Format)
 			if err != nil {
-				logger.Printf("Failed to get selection: %s", err)
+				logger.Printf("could not set selection for requestor: %s", err)
 			}
-			if data != nil && len(data) >= opts.MinClipSize {
+		}
+	case xproto.SelectionClearEvent:
+		// Something else has taken ownership
+
+	case xproto.PropertyNotifyEvent:
+		// TODO: many errors in console during INCR, not stopping listening correctly?
+		if ev.State == xproto.PropertyDelete {
+			err := xconn.ContinueSetSelection(ev)
+			if err != nil {
+				logger.Printf("error during INCR set selection: %s", err)
+			}
+		} else {
+			data, format, err := xconn.ContinueGetSelection(ev)
+			if err != nil {
+				logger.Printf("error during INCR get selection: %s", err)
+			} else if data != nil {
+				// the INCR is complete
 				captureClip(data, format)
 			}
-
-		case xproto.SelectionRequestEvent:
-			// Let the requestor know what target is available for the current clip
-			selectedClip := hist.GetSelected()
-
-			if selectedClip == nil {
-				logger.Print("Nothing in history to share")
-			} else {
-				err := xconn.SetSelection(ev, &selectedClip.Value, selectedClip.Format)
-				if err != nil {
-					logger.Printf("could not set selection for requestor: %s", err)
-				}
-			}
-		case xproto.SelectionClearEvent:
-			// Something else has taken ownership
-
-		case xproto.PropertyNotifyEvent:
-			// TODO: many errors in console during INCR, not stopping listening correctly?
-			if ev.State == xproto.PropertyDelete {
-				err := xconn.ContinueSetSelection(ev)
-				if err != nil {
-					logger.Printf("error during INCR set selection: %s", err)
-				}
-			} else {
-				data, format, err := xconn.ContinueGetSelection(ev)
-				if err != nil {
-					logger.Printf("error during INCR get selection: %s", err)
-				} else if data != nil {
-					// the INCR is complete
-					captureClip(data, format)
-				}
-			}
-
-		default:
-			logger.Printf("Unknown Event: %s\n", ev)
 		}
+
+	default:
+		logger.Printf("Unknown Event: %s\n", ev)
 	}
 }

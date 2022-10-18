@@ -5,6 +5,17 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 ## Next
 
 - TODO Add integration tests for png target
+- TODO better dup support -- get rid of dupes regardless of when the previous one was made? Could become expensive with very large history sizes?
+    probably fine though, tbh
+
+- could have a config file where it loads 'permanent' clips to be included at the bottom of results, useful for frequently used things
+    one per line with \n encoded?
+    or maybe we should use command line flags still, one per preset?
+- how can we do this elegantly without messing with the history code though. probably easy enough to just have a second slice of the fixed ones
+    and then merge them in when we loop to format or loop to search. Could maybe have the ability to 'lock' some clips too.
+    what would their 'time' be? '[locked]' maybe, [preset]? something like that.
+
+- somehow detect if another clipclop is running and tell me "TURN IT OFF OR TESTS WILL FAIL"?
 
 ## Image support
 

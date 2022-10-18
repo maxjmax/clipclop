@@ -23,6 +23,8 @@ var opts = options{
 	HistorySize: 50,
 }
 
+// TODO: refactor these further to make more readable and generic + easy to add to + faster.
+
 func TestClipClopIntegration(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
 
@@ -102,15 +104,57 @@ func TestClipClopIntegration(t *testing.T) {
 	}
 }
 
-func TestClipClopINCR(t *testing.T) {
-	// TODO: I think the previous test is now affecting this one. Need to stop them properly between tests?
+func TestClipClopClipboardOwnership(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // cleanup when test is done
 
 	go run(ctx, logger, opts)
 
-	time.Sleep(1 * time.Second)
+	clips := [][]string{
+		{"clipboard", "hello world"},
+		{"clipboard", "another world"},
+	}
+
+	err := populateClips(clips)
+	if err != nil {
+		t.Fatalf("could not populate clipboard history: %s", err)
+	}
+
+	out, err := sendCommandToSocket("GET\n")
+	if err != nil {
+		t.Fatal("Could not talk with clipclop", err)
+	}
+	lines := strings.Split(out, "\n")
+
+	// Select the second clip
+	out, err = sendCommandToSocket(fmt.Sprintf("SEL %s\n", lines[1]))
+	if err != nil || out != "OK" {
+		t.Fatalf("Could not set clip %s: %s, err: %s", lines[1], out, err)
+	}
+
+	// Now do another copy, and immediately paste
+	clips = [][]string{
+		{"clipboard", "third world"},
+	}
+	err = populateClips(clips)
+	if err != nil {
+		t.Fatalf("could not populate clipboard history: %s", err)
+	}
+
+	fullClip, err := getSelWithXclip()
+	if fullClip != "third world" {
+		t.Fatalf("Should have pasted the last copied entry, but got %s", fullClip)
+	}
+}
+
+func TestClipClopINCR(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // cleanup when test is done
+
+	go run(ctx, logger, opts)
 
 	// TODO: ??? seems to work in browser with a big image (10MB)
 	// TODO: problem with our xclip call?
