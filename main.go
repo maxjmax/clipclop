@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/xgb"
@@ -34,13 +35,28 @@ Arguments:
 You can interact with clipclop using the specified unix socket.
 The available commands are:
 
-    GET        Get a \n separated list of clips, prefixed with their relative
-               time. This is formatted to be fed to dmenu or equivalent.
-    SEL [clip] Retrieve the raw clip corresponding to the chosen line (as 
-               returned by dmenu or equivalent)
-	
+  GET        Get a \n separated list of clips, prefixed with their relative
+             time. This is formatted to be fed to dmenu or equivalent.
+  SEL [clip] Retrieve the raw clip corresponding to the chosen line (as 
+             returned by dmenu or equivalent)
+
 For an example of how to use this with dmenu, see clip.sh in the clipclop repo.
+
+Example:
+
+  clipclop -n 200 -preset "useful command" -preset "020 7898 1000" -socket /tmp/s.sock -v -m 6 &
 `)
+}
+
+type flagArray []string
+
+func (a *flagArray) String() string {
+	return strings.Join(*a, "\n")
+}
+
+func (a *flagArray) Set(value string) error {
+	*a = append(*a, value)
+	return nil
 }
 
 type options struct {
@@ -48,6 +64,7 @@ type options struct {
 	HistorySize int
 	Debug       bool
 	MinClipSize int
+	Presets     flagArray
 }
 
 func main() {
@@ -57,6 +74,8 @@ func main() {
 	flag.IntVar(&opts.HistorySize, "n", 100, "Number of records to keep in history")
 	flag.BoolVar(&opts.Debug, "v", false, "Print verbose debugging output")
 	flag.IntVar(&opts.MinClipSize, "m", 4, "Min clip size. Smaller clips will be discarded.")
+	flag.Var(&opts.Presets, "preset", "One or more preset strings that will always be included in the history. They will not count towards the history size.")
+
 	flag.Parse()
 	logger := log.New(os.Stdout, "", log.Lshortfile|log.Ldate|log.Ltime)
 
@@ -68,7 +87,7 @@ func main() {
 
 func run(ctx context.Context, logger *log.Logger, opts options) {
 	var err error
-	hist := history.NewHistory(opts.HistorySize)
+	hist := history.NewHistory(opts.HistorySize, []string(opts.Presets))
 	xconn, err := x.StartX()
 	if err != nil {
 		logger.Fatalf("Error starting X: %s", err)

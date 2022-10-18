@@ -28,15 +28,26 @@ type Clip struct {
 
 type History struct {
 	data     []Clip
+	presets  []Clip
 	first    int
 	selected *Clip
 	mu       sync.RWMutex
 }
 
-func NewHistory(maxSize int) *History {
+func NewHistory(maxSize int, presets []string) *History {
+	presetClips := make([]Clip, 0, len(presets))
+	for _, s := range presets {
+		presetClips = append(presetClips, Clip{
+			Value:  []uint8(s),
+			Format: StringFormat,
+			Source: "preset",
+		})
+	}
+
 	h := History{
-		data:  make([]Clip, 0, maxSize),
-		first: 0,
+		data:    make([]Clip, 0, maxSize),
+		presets: presetClips,
+		first:   0,
 	}
 	return &h
 }
@@ -88,22 +99,27 @@ func (h *History) Format(f func(Clip) string) []string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	if len(h.data) == 0 {
-		return []string{}
+	cnt := len(h.data) + len(h.presets)
+	r := make([]string, 0, cnt)
+
+	if len(h.data) > 0 {
+		// iterate backwards to show the more recent entries first
+		// TODO: could we extract this looping?
+		i := h.getEnd()
+		for {
+			r = append(r, f(h.data[i]))
+			if i == h.first {
+				break // we've gone full circle
+			}
+			if i--; i < 0 {
+				i = len(h.data) - 1
+			}
+		}
 	}
 
-	r := make([]string, 0, len(h.data))
-
-	// iterate backwards to show the more recent entries first
-	i := h.getEnd()
-	for {
-		r = append(r, f(h.data[i]))
-		if i == h.first {
-			break // we've gone full circle
-		}
-		if i--; i < 0 {
-			i = len(h.data) - 1
-		}
+	// Include the presets at the end
+	for _, p := range h.presets {
+		r = append(r, f(p))
 	}
 
 	return r
@@ -122,12 +138,16 @@ func (h *History) FindEntry(formatted string) (*Clip, error) {
 		return nil, err
 	}
 	search = strings.Trim(search, "\n ")
-
 	i := h.getEnd()
-	for {
-		s := HistoryFormatter(h.data[i])
+
+	isMatch := func(c Clip) bool {
+		s := HistoryFormatter(c)
 		s, _ = removeRelativeTimeString(s)
-		if strings.Trim(s, "\n ") == search {
+		return strings.Trim(s, "\n ") == search
+	}
+
+	for {
+		if isMatch(h.data[i]) {
 			return &h.data[i], nil
 		}
 		if i == h.first {
@@ -137,12 +157,19 @@ func (h *History) FindEntry(formatted string) (*Clip, error) {
 			i = len(h.data) - 1
 		}
 	}
+
+	for _, p := range h.presets {
+		if isMatch(p) {
+			return &p, nil
+		}
+	}
+
 	return nil, errors.New("no match found")
 }
 
 func HistoryFormatter(c Clip) string {
 	var line, post string
-	pre := fmt.Sprintf("[%s] ", getRelativeTimeString(time.Since(c.Created)))
+	pre := fmt.Sprintf("[%s] ", getRelativeTimeString(c.Created))
 
 	if c.Format == PngFormat {
 		line = fmt.Sprintf("{png image %.1fkB}", float32(len(c.Value))/1024.0)
@@ -179,7 +206,12 @@ func (c *Clip) isDuplicate(c2 Clip) bool {
 	return strings.Contains(string(c.Value), string(c2.Value)) || strings.Contains(string(c2.Value), string(c.Value))
 }
 
-func getRelativeTimeString(td time.Duration) string {
+func getRelativeTimeString(t time.Time) string {
+	if t.IsZero() {
+		return " preset"
+	}
+
+	td := time.Since(t)
 	s := td.Seconds()
 	if s < 120 {
 		return fmt.Sprintf("%2ds ago", int(math.Round(s)))

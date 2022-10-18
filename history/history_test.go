@@ -17,19 +17,19 @@ func getHistoryAsLines(h *History, sep string) string {
 }
 
 func TestHistory(t *testing.T) {
-	h := NewHistory(6)
+	h := NewHistory(6, []string{"-"})
 	expected := []string{
-		"",
-		"0",
-		"1 0",
-		"2 1 0",
-		"3 2 1 0",
-		"4 3 2 1 0",
-		"5 4 3 2 1 0",
-		"6 5 4 3 2 1",
-		"7 6 5 4 3 2",
-		"8 7 6 5 4 3",
-		"9 8 7 6 4 3",
+		"-",
+		"0 -",
+		"1 0 -",
+		"2 1 0 -",
+		"3 2 1 0 -",
+		"4 3 2 1 0 -",
+		"5 4 3 2 1 0 -",
+		"6 5 4 3 2 1 -",
+		"7 6 5 4 3 2 -",
+		"8 7 6 5 4 3 -",
+		"9 8 7 6 4 3 -",
 	}
 
 	for i := 0; i < 9; i++ {
@@ -43,7 +43,7 @@ func TestHistory(t *testing.T) {
 }
 
 func TestDuplicates(t *testing.T) {
-	h := NewHistory(6)
+	h := NewHistory(6, []string{})
 
 	h.Append(newTestClip("Hello"))       // dup
 	h.Append(newTestClip("Hell"))        // dup
@@ -57,35 +57,36 @@ func TestDuplicates(t *testing.T) {
 }
 
 func TestHistoryFormat(t *testing.T) {
-	h := NewHistory(1)
-
-	clips := []string{
-		"Hello",
-		" 	Hello",
-		strings.Repeat("Hello", 12),
-		"Hello\nHello\nHello",
-		strings.Repeat("Hello", 12) + "\nHello",
+	stringTests := []struct {
+		expected string
+		in       string
+	}{
+		{"[ 0s ago] HelloHelloHelloHelloHelloHelloHelloH... [+1 lines]", strings.Repeat("Hello", 12) + "\nHello"},
+		{"[ 0s ago] Hello                                   [+2 lines]", "Hello\nHello\nHello"},
+		{"[ 0s ago] HelloHelloHelloHelloHelloHelloHelloHelloHelloHe...", strings.Repeat("Hello", 12)},
+		{"[ 0s ago] Hello                                             ", "    Hello"},
+		{"[ 0s ago] Hello                                             ", "Hello"},
 	}
 
-	expected := []string{
-		"[ 0s ago] {png image 0.0kB}                                 ",
-		"[ 0s ago] HelloHelloHelloHelloHelloHelloHelloH... [+1 lines]",
-		"[ 0s ago] Hello                                   [+2 lines]",
-		"[ 0s ago] HelloHelloHelloHelloHelloHelloHelloHelloHelloHe...",
-		"[ 0s ago] Hello                                             ",
-		"[ 0s ago] Hello                                             ",
+	for _, tt := range stringTests {
+		r := HistoryFormatter(newTestClip(tt.in))
+		if r != tt.expected {
+			t.Errorf("Format was wrong, expected %s got %s", tt.expected, r)
+		}
 	}
 
-	for _, s := range clips {
-		h.Append(newTestClip(s))
+	otherTests := []struct {
+		expected string
+		in       Clip
+	}{
+		{"[ 0s ago] {png image 0.0kB}                                 ", Clip{time.Now(), []uint8{}, PngFormat, "test"}},
+		{"[ preset] always                                            ", Clip{time.Time{}, []uint8("always"), StringFormat, "test"}},
 	}
-	h.Append(Clip{time.Now(), []uint8{}, PngFormat, "test"})
 
-	f := h.Format(HistoryFormatter)
-
-	for i := range f {
-		if f[i] != expected[i] {
-			t.Errorf("Format was wrong, expected %s got %s", expected[i], f[0])
+	for _, tt := range otherTests {
+		r := HistoryFormatter(tt.in)
+		if r != tt.expected {
+			t.Errorf("Format was wrong, expected %s got %s", tt.expected, r)
 		}
 	}
 }
@@ -102,11 +103,16 @@ func TestHistorySelect(t *testing.T) {
 		"%@&",
 	}
 
+	presets := []string{
+		"preset1",
+		"preset2\nmore",
+	}
+
 	for i := 0; i < 5; i++ {
 		// Shuffle the array differently each time to make sure order doesn't matter
 		rand.Shuffle(len(e), func(i, j int) { e[i], e[j] = e[j], e[i] })
 		clips := make([]Clip, 0, len(e))
-		h := NewHistory(10)
+		h := NewHistory(10, presets)
 		for i, str := range e {
 			// separate the clip times to avoid removal of dups
 			clip := Clip{time.Now().Add(time.Hour * time.Duration(i)), []uint8(str), StringFormat, "test"}
@@ -115,6 +121,9 @@ func TestHistorySelect(t *testing.T) {
 		}
 
 		formatted := h.Format(HistoryFormatter)
+		if len(formatted) != len(e)+len(presets) {
+			t.Fatalf("Too few entries found: got %d", len(formatted))
+		}
 		for j := 0; j < len(e); j++ {
 			realIndex := len(e) - (j + 1) // because we get the first item last
 			// try to find each entry
@@ -153,7 +162,7 @@ func TestHistoryTimeString(t *testing.T) {
 		if err != nil {
 			t.Fatalf("could not parse duration: %s", err)
 		}
-		r := getRelativeTimeString(d)
+		r := getRelativeTimeString(time.Now().Add(-d))
 		if r != tt.out {
 			t.Fatalf("Incorrect duration string: got %s expected %s", r, tt.out)
 		}

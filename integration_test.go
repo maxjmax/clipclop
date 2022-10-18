@@ -25,8 +25,12 @@ var opts = options{
 
 // TODO: refactor these further to make more readable and generic + easy to add to + faster.
 
+// TODO: hm, we _could_ use presets for some tests, to speed it up
+
 func TestClipClopIntegration(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
+	opts := opts
+	opts.Presets = []string{"preset string"}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // cleanup when test is done
@@ -48,6 +52,7 @@ func TestClipClopIntegration(t *testing.T) {
 			"[ 1s ago] wee %*21                                          ",
 			"[ 1s ago] hello world                                       ",
 			"[ 1s ago] blaa                                              ",
+			"[ preset] preset string                                     ",
 		}, "\n")
 
 	err := populateClips(clips)
@@ -80,8 +85,9 @@ func TestClipClopIntegration(t *testing.T) {
 	}
 
 	lines := strings.Split(out, "\n")
-	if len(lines) != 50 {
-		t.Fatalf("Should have 50 entries but got %d", len(lines))
+	if len(lines) != 51 {
+		// include 1 preset
+		t.Fatalf("Should have 51 entries but got %d", len(lines))
 	}
 
 	for i := 0; i < 50; i++ {
