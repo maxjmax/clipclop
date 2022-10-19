@@ -23,10 +23,6 @@ var opts = options{
 	HistorySize: 50,
 }
 
-// TODO: refactor these further to make more readable and generic + easy to add to + faster.
-
-// TODO: hm, we _could_ use presets for some tests, to speed it up
-
 func TestClipClopIntegration(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
 	opts := opts
@@ -36,6 +32,13 @@ func TestClipClopIntegration(t *testing.T) {
 	defer cancel() // cleanup when test is done
 
 	go run(ctx, logger, opts)
+
+	// TODO: better way
+	time.Sleep(500 * time.Millisecond) // let it start up
+
+	// Ensure we can SEL if there is only a preset
+	out := checkGET(t, 1)
+	checkSEL(t, out[0], "preset string")
 
 	// in another thread, change the clipboard using xclip
 	clips := [][]string{
@@ -55,17 +58,10 @@ func TestClipClopIntegration(t *testing.T) {
 			"[ preset] preset string                                     ",
 		}, "\n")
 
-	err := populateClips(clips)
-	if err != nil {
-		t.Fatalf("could not populate clipboard history: %s", err)
-	}
+	populateClips(clips)
 
-	out, err := sendCommandToSocket("GET\n")
-	if err != nil {
-		t.Fatal("Could not talk with clipclop", err)
-	}
-
-	if out != expected {
+	out = checkGET(t, 5)
+	if strings.Join(out, "\n") != expected {
 		t.Fatalf("got %s\nexpected %s", out, expected)
 	}
 
@@ -78,35 +74,12 @@ func TestClipClopIntegration(t *testing.T) {
 	}
 
 	populateClips(randomClips)
-
-	out, err = sendCommandToSocket("GET\n")
-	if err != nil {
-		t.Fatal("Could not talk with clipclop", err)
-	}
-
-	lines := strings.Split(out, "\n")
-	if len(lines) != 51 {
-		// include 1 preset
-		t.Fatalf("Should have 51 entries but got %d", len(lines))
-	}
-
+	lines := checkGET(t, 51) // 50 + 1 preset
 	for i := 0; i < 50; i++ {
 		clip := randomClips[100-(i+1)]
-		line := lines[i]
 
 		// if we select the first line, it should return the 50th clip (since they are in reverse order)
-		out, err = sendCommandToSocket(fmt.Sprintf("SEL %s\n", line))
-		if err != nil || out != "OK" {
-			t.Fatalf("Could not set clip %s: %s, err: %s", line, out, err)
-		}
-
-		fullClip, err := getSelWithXclip()
-		if err != nil {
-			t.Fatalf("Could not get selection")
-		}
-		if fullClip != clip[1] {
-			t.Fatalf("Tried to sel %s using %s but got %s", clip[1], line, fullClip)
-		}
+		checkSEL(t, lines[i], clip[1])
 	}
 }
 
@@ -123,33 +96,19 @@ func TestClipClopClipboardOwnership(t *testing.T) {
 		{"clipboard", "another world"},
 	}
 
-	err := populateClips(clips)
-	if err != nil {
-		t.Fatalf("could not populate clipboard history: %s", err)
-	}
-
-	out, err := sendCommandToSocket("GET\n")
-	if err != nil {
-		t.Fatal("Could not talk with clipclop", err)
-	}
-	lines := strings.Split(out, "\n")
+	populateClips(clips)
 
 	// Select the second clip
-	out, err = sendCommandToSocket(fmt.Sprintf("SEL %s\n", lines[1]))
-	if err != nil || out != "OK" {
-		t.Fatalf("Could not set clip %s: %s, err: %s", lines[1], out, err)
-	}
+	lines := checkGET(t, 2)
+	checkSEL(t, lines[1], "hello world")
 
 	// Now do another copy, and immediately paste
 	clips = [][]string{
 		{"clipboard", "third world"},
 	}
-	err = populateClips(clips)
-	if err != nil {
-		t.Fatalf("could not populate clipboard history: %s", err)
-	}
+	populateClips(clips)
 
-	fullClip, err := getSelWithXclip()
+	fullClip, _ := getSelWithXclip()
 	if fullClip != "third world" {
 		t.Fatalf("Should have pasted the last copied entry, but got %s", fullClip)
 	}
@@ -168,30 +127,40 @@ func TestClipClopINCR(t *testing.T) {
 	// TODO: any bigger than 100 and it starts to use INCR and it stops working, but it _does_ work
 	// aaah
 	clips := [][]string{{"primary", strings.Repeat("1234567890", 100*1024)}}
-	err := populateClips(clips)
-	if err != nil {
-		t.Fatalf("could not populate clipboard history: %s", err)
-	}
+	populateClips(clips)
 
+	lines := checkGET(t, 1)
+	checkSEL(t, lines[0], clips[0][1])
+}
+
+func checkGET(t *testing.T, expectedCnt int) []string {
 	out, err := sendCommandToSocket("GET\n")
-	lines := strings.Split(out, "\n")
-	if len(lines) != 1 {
-		t.Fatalf("Should have 1 entry but got %d", len(lines))
+	if err != nil {
+		t.Fatal("Could not talk with clipclop", err)
 	}
 
-	out, err = sendCommandToSocket(fmt.Sprintf("SEL %s\n", lines[0]))
+	lines := strings.Split(out, "\n")
+	if len(lines) != expectedCnt {
+		t.Fatalf("Wrong number of entries found: expected %d, got %d", expectedCnt, len(lines))
+	}
+	return lines
+}
+
+func checkSEL(t *testing.T, line string, expected string) {
+	out, err := sendCommandToSocket(fmt.Sprintf("SEL %s\n", line))
 	if err != nil || out != "OK" {
-		t.Fatalf("Could not set clip: %s, %s", out, err)
+		t.Fatalf("Could not set clip %s: %s, err: %s", line, out, err)
 	}
 
 	fullClip, err := getSelWithXclip()
 	if err != nil {
-		t.Fatalf("Could not get selection")
+		t.Fatalf("Could not get selection after SEL %s", line)
 	}
-	if fullClip != clips[0][1] {
-		// Max prop size is probably set to ~63kB
-		// (we chunk it above 1/4 of the max size, which would be that many int32s)
-		t.Fatalf("Did not get full 2MB clip back, only got %dkB", len(fullClip)/1024)
+	if fullClip != expected {
+		if len(fullClip) > 512 {
+			t.Fatalf("Got %dkB instead of expected %dkB when selecting %s", len(fullClip)/1024, len(expected)/1024, line)
+		}
+		t.Fatalf("Tried to sel %s using %s but got %s", expected, line, fullClip)
 	}
 }
 
@@ -205,16 +174,15 @@ func randString(n int) string {
 	return string(b)
 }
 
-func populateClips(clips [][]string) error {
+func populateClips(clips [][]string) {
 	for _, clip := range clips {
 		err := setSelWithXclip(clip[1], clip[0])
 		if err != nil {
-			return err
+			panic(err)
 		}
 	}
 
 	time.Sleep(1 * time.Second) // TODO: eeeeh..find a better way. need to wait for the xevents to trickle through
-	return nil
 }
 
 func sendCommandToSocket(cmd string) (string, error) {

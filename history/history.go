@@ -68,6 +68,9 @@ func (h *History) Top() *Clip {
 	defer h.mu.RUnlock()
 
 	if len(h.data) < 1 {
+		if len(h.presets) > 0 {
+			return &h.presets[0]
+		}
 		return nil
 	}
 	return &h.data[h.getEnd()]
@@ -129,7 +132,7 @@ func (h *History) FindEntry(formatted string) (*Clip, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	if len(h.data) == 0 {
+	if len(h.data)+len(h.presets) == 0 {
 		return nil, errors.New("empty history")
 	}
 
@@ -146,15 +149,17 @@ func (h *History) FindEntry(formatted string) (*Clip, error) {
 		return strings.Trim(s, "\n ") == search
 	}
 
-	for {
-		if isMatch(h.data[i]) {
-			return &h.data[i], nil
-		}
-		if i == h.first {
-			break // we've gone full circle
-		}
-		if i--; i < 0 {
-			i = len(h.data) - 1
+	if len(h.data) > 0 {
+		for {
+			if isMatch(h.data[i]) {
+				return &h.data[i], nil
+			}
+			if i == h.first {
+				break // we've gone full circle
+			}
+			if i--; i < 0 {
+				i = len(h.data) - 1
+			}
 		}
 	}
 

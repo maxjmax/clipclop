@@ -4,7 +4,9 @@ https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 
 ## Next
 
+- TODO: if only one preset entry, nothing else, can't SEL it
 - TODO Add integration tests for png target
+- TODO for png target, include source window in the formatted string to differenciate better
 - TODO better dup support -- get rid of dupes regardless of when the previous one was made? Could become expensive with very large history sizes?
     probably fine though, tbh
 
