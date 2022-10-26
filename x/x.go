@@ -2,6 +2,7 @@
 package x
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"reflect"
@@ -108,9 +109,12 @@ func (x *X) CreateEventWindow() error {
 
 	// Request events to it when the selection changes
 	var mask uint32 = xfixes.SelectionEventMaskSetSelectionOwner
-	if err = xfixes.SelectSelectionInputChecked(x.conn, wid, xproto.AtomPrimary, mask).Check(); err != nil {
-		return fmt.Errorf("could not select primary selection events: %w", err)
-	}
+	// TODO: TESTING: ignore primary
+	/*
+		if err = xfixes.SelectSelectionInputChecked(x.conn, wid, xproto.AtomPrimary, mask).Check(); err != nil {
+			return fmt.Errorf("could not select primary selection events: %w", err)
+		}
+	*/
 
 	if err = xfixes.SelectSelectionInputChecked(x.conn, wid, x.atoms.clipboard, mask).Check(); err != nil {
 		return fmt.Errorf("could not select clipboard selection events: %w", err)
@@ -193,15 +197,26 @@ func (x *X) SetSelection(ev xproto.SelectionRequestEvent, data *[]uint8, format 
 	}
 
 	var err error
+	var ints []byte
 	dataLen := uint32(len(*data))
 	if ev.Target == x.atoms.targets {
-		err = replaceProperty(xproto.AtomAtom, 32, 2, packInts(uint32(x.formatToAtom(format)), uint32(x.atoms.targets)))
+		ints, err = packInts(uint32(x.formatToAtom(format)), uint32(x.atoms.targets))
+		if err == nil {
+			err = replaceProperty(xproto.AtomAtom, 32, 2, ints)
+		}
 	} else if int(dataLen) < x.maxPropSize {
-		// target := x.formatToAtom(currentClip.format)
-		err = replaceProperty(ev.Target, 8, dataLen, []byte(*data))
+		// TODO: ok, this was the vim issue, we were pasting the wrong target
+		// TODO: vim requested 'Target=_VIMENC_TEXT' despite what we gave it
+		// is our target code wrong, or is vim just ignoring TARGETS?
+		// As long as we TELL it that we are giving it a string, it works.
+		target := x.formatToAtom(format)
+		err = replaceProperty(target, 8, dataLen, []byte(*data))
 	} else {
 		// Need to use INCR
-		err = replaceProperty(x.atoms.incr, 32, 1, packInts(dataLen))
+		ints, err = packInts(dataLen)
+		if err == nil {
+			err = replaceProperty(x.atoms.incr, 32, 1, ints)
+		}
 		if err != nil {
 			return err
 		}
@@ -248,6 +263,8 @@ func (x *X) ContinueGetSelection(ev xproto.PropertyNotifyEvent) ([]byte, history
 	if err != nil {
 		return nil, history.NoneFormat, fmt.Errorf("could not delete property during incr: %w", err)
 	}
+
+	// TODO: prevent it from erroring every time, same method as with SET
 
 	if len(reply.Value) == 0 {
 		// we have finished handling this INCR, clean up
@@ -382,19 +399,20 @@ func createAtom(X *xgb.Conn, n string) xproto.Atom {
 	return reply.Atom
 }
 
-func packInts(ints ...uint32) []byte {
-	data := make([]byte, len(ints)*4)
-	for i := 0; i < len(ints); i++ {
-		xgb.Put32(data[(i*4):], ints[i])
+func packInts(ints ...uint32) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.LittleEndian, ints)
+	if err != nil {
+		return nil, err
 	}
-	return data
+	return buf.Bytes(), nil
 }
 
 func unpackInt(packed []byte) uint32 {
 	if len(packed) < 4 {
 		return 0
 	}
-	return binary.BigEndian.Uint32(packed[0:4])
+	return binary.LittleEndian.Uint32(packed[0:4])
 }
 
 func (x *X) chooseTarget(ev xproto.SelectionNotifyEvent) (xproto.Atom, error) {
@@ -403,16 +421,24 @@ func (x *X) chooseTarget(ev xproto.SelectionNotifyEvent) (xproto.Atom, error) {
 		return xproto.AtomNone, err
 	}
 
-	// 32bits per atom, look for our preferred atom type and return it.
-	// Adapted from xgbutil/xprop code
-	atoms := reply.Value
-	for i := 0; len(atoms) >= 4; i++ {
-		atom := xproto.Atom(xgb.Get32(atoms))
-		if atom == x.atoms.png || atom == x.atoms.utf8 {
-			return atom, nil
-		}
-		atoms = atoms[4:]
+	atomsBytes := bytes.NewReader(reply.Value)
+	atoms := make([]xproto.Atom, len(reply.Value)/4)
+	err = binary.Read(atomsBytes, binary.LittleEndian, &atoms)
+
+	if err != nil {
+		return xproto.AtomNone, err
 	}
-	// If we find neither image nor utf8, we default to the string target
+
+	// TODO: give x a logger?
+	for _, a := range atoms {
+		name := x.getAtomName(a)
+		fmt.Printf("Available target: %s\n", name)
+	}
+
+	for _, a := range atoms {
+		if a == x.atoms.png || a == x.atoms.utf8 {
+			return a, nil
+		}
+	}
 	return xproto.AtomString, nil
 }

@@ -2,13 +2,20 @@
 
 https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 
+has some comments around selections https://git.suckless.org/st/file/x.c.html might have been useful
+
 ## Next
 
-- TODO: if only one preset entry, nothing else, can't SEL it
 - TODO Add integration tests for png target
 - TODO for png target, include source window in the formatted string to differenciate better
 - TODO better dup support -- get rid of dupes regardless of when the previous one was made? Could become expensive with very large history sizes?
     probably fine though, tbh
+
+- TODO ONE possibility, would be to get every available target and record all of them, then offer them up exactly as we got them
+    this has the issue of maybe using masses of memory for big things though
+    To see how big of a deal this would be, dump out offered targets in debugging and see what vim offers for example.
+    (many.)
+    we could whitelist support targets, and store multiple?
 
 - could have a config file where it loads 'permanent' clips to be included at the bottom of results, useful for frequently used things
     one per line with \n encoded?

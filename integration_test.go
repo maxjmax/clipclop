@@ -44,9 +44,10 @@ func TestClipClopIntegration(t *testing.T) {
 	clips := [][]string{
 		{"clipboard", "bla"},  // too short, will be discarded
 		{"clipboard", "blaa"}, // just long enough, will be included
-		{"primary", "hello world"},
+		{"clipboard", "hello world"},
 		{"clipboard", "wee %*21"},
-		{"primary", "awkrwere\nwrir rwerr jwer "},
+		{"primary", "we ignore primary selections, now"},
+		{"clipboard", "awkrwere\nwrir rwerr jwer "},
 	}
 
 	expected := strings.Join(
@@ -70,7 +71,7 @@ func TestClipClopIntegration(t *testing.T) {
 	randomClips := make([][]string, 0, 100)
 	for i := 0; i < 100; i++ {
 		str := randString(50 + rand.Intn(100))
-		randomClips = append(randomClips, []string{"primary", str})
+		randomClips = append(randomClips, []string{"clipboard", str})
 	}
 
 	populateClips(randomClips)
@@ -126,7 +127,7 @@ func TestClipClopINCR(t *testing.T) {
 	// TODO: we're only getting 1MB back, so assume we're not writing the whole 2MB
 	// TODO: any bigger than 100 and it starts to use INCR and it stops working, but it _does_ work
 	// aaah
-	clips := [][]string{{"primary", strings.Repeat("1234567890", 100*1024)}}
+	clips := [][]string{{"clipboard", strings.Repeat("1234567890", 100*1024)}}
 	populateClips(clips)
 
 	lines := checkGET(t, 1)
